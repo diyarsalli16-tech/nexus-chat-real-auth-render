@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: nexus-chat
+    name: nexus-chat-real-social
     env: node
     plan: free
     buildCommand: npm install && npm run build
