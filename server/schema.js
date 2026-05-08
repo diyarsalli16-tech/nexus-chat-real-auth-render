@@ -12,6 +12,7 @@ export async function initDb(){
   CREATE UNIQUE INDEX IF NOT EXISTS friendships_pair_idx ON friendships (LEAST(requester_id,addressee_id), GREATEST(requester_id,addressee_id));
   CREATE TABLE IF NOT EXISTS direct_messages(id SERIAL PRIMARY KEY, sender_id INTEGER REFERENCES users(id) ON DELETE CASCADE, receiver_id INTEGER REFERENCES users(id) ON DELETE CASCADE, content TEXT NOT NULL, edited_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
   CREATE TABLE IF NOT EXISTS audit_logs(id SERIAL PRIMARY KEY, server_id INTEGER REFERENCES servers(id) ON DELETE CASCADE, user_id INTEGER REFERENCES users(id) ON DELETE SET NULL, action TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+  CREATE TABLE IF NOT EXISTS server_invites(id SERIAL PRIMARY KEY, server_id INTEGER REFERENCES servers(id) ON DELETE CASCADE, creator_id INTEGER REFERENCES users(id) ON DELETE SET NULL, code VARCHAR(32) UNIQUE NOT NULL, max_uses INTEGER NOT NULL DEFAULT 0, uses INTEGER NOT NULL DEFAULT 0, expires_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
  `);
  const u=await query(`SELECT id FROM users LIMIT 1`);
  if(!u.rowCount){

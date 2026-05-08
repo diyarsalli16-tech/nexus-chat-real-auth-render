@@ -15,11 +15,23 @@ const app=express(), httpServer=http.createServer(app), isProd=process.env.NODE_
 const allowedOrigin=process.env.CLIENT_ORIGIN || (isProd?undefined:"http://localhost:5173");
 app.use(cors({origin:allowedOrigin||true, credentials:true})); app.use(express.json({limit:"2mb"}));
 const io=new Server(httpServer,{cors:{origin:allowedOrigin||true,credentials:true}}); io.use(socketAuth);
-io.on("connection", socket=>{ socket.join(`user:${socket.user.id}`); socket.on("channel:join", id=>socket.join(`channel:${id}`)); socket.on("voice:join", id=>{socket.join(`voice:${id}`); socket.to(`voice:${id}`).emit("voice:user-joined",socket.user)}); socket.on("voice:leave", id=>{socket.leave(`voice:${id}`); socket.to(`voice:${id}`).emit("voice:user-left",socket.user.id)}); });
+io.on("connection", socket=>{
+ socket.join(`user:${socket.user.id}`);
+ socket.on("channel:join", id=>socket.join(`channel:${id}`));
+ socket.on("voice:join", id=>{socket.join(`voice:${id}`); socket.to(`voice:${id}`).emit("voice:user-joined",socket.user)});
+ socket.on("voice:leave", id=>{socket.leave(`voice:${id}`); socket.to(`voice:${id}`).emit("voice:user-left",socket.user.id)});
+ socket.on("dm:voice-invite", ({to})=>io.to(`user:${to}`).emit("dm:voice-invite",{from:socket.user}));
+ socket.on("dm:voice-accept", ({to})=>io.to(`user:${to}`).emit("dm:voice-accept",{from:socket.user}));
+ socket.on("dm:voice-decline", ({to})=>io.to(`user:${to}`).emit("dm:voice-decline",{from:socket.user}));
+ socket.on("dm:voice-signal", ({to,data})=>io.to(`user:${to}`).emit("dm:voice-signal",{from:socket.user.id,data}));
+ socket.on("dm:voice-end", ({to})=>io.to(`user:${to}`).emit("dm:voice-end",{from:socket.user.id}));
+});
 const pub=u=>({id:u.id,username:u.username,avatar:u.avatar,status:u.status,bio:u.bio,created_at:u.created_at});
 async function member(uid,sid){const r=await query(`SELECT role FROM server_members WHERE user_id=$1 AND server_id=$2`,[uid,sid]);return r.rows[0]||null}
 async function chServer(cid){const r=await query(`SELECT c.*,s.id server_id FROM channels c JOIN servers s ON s.id=c.server_id WHERE c.id=$1`,[cid]);return r.rows[0]||null}
 async function friends(a,b){const r=await query(`SELECT id FROM friendships WHERE ((requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1)) AND status='accepted'`,[a,b]);return r.rowCount>0}
+
+function inviteCode(){return Math.random().toString(36).slice(2,8).toUpperCase()+Math.random().toString(36).slice(2,5).toUpperCase();}
 app.post("/api/auth/register",async(req,res)=>{try{const username=String(req.body.username||"").trim(), password=String(req.body.password||""); if(!/^[a-zA-Z0-9_ğüşöçıİĞÜŞÖÇ.-]{3,24}$/.test(username))return res.status(400).json({error:"Kullanıcı adı 3-24 karakter olmalı."}); if(password.length<6)return res.status(400).json({error:"Şifre en az 6 karakter."}); const hash=await bcrypt.hash(password,10); const r=await query(`INSERT INTO users(username,password_hash,avatar) VALUES($1,$2,$3) RETURNING id,username,avatar,status,bio,created_at`,[username,hash,username[0].toUpperCase()]); const u=r.rows[0]; const s=await query(`SELECT id FROM servers ORDER BY id LIMIT 1`); if(s.rowCount) await query(`INSERT INTO server_members(server_id,user_id,role) VALUES($1,$2,'Member') ON CONFLICT DO NOTHING`,[s.rows[0].id,u.id]); res.json({token:signToken(u),user:pub(u)});}catch(e){if(String(e.message).includes("duplicate"))return res.status(409).json({error:"Bu kullanıcı adı alınmış."}); console.error(e); res.status(500).json({error:"Kayıt hatası."})}});
 app.post("/api/auth/login",async(req,res)=>{const username=String(req.body.username||"").trim(), password=String(req.body.password||""); const r=await query(`SELECT * FROM users WHERE username=$1`,[username]); if(!r.rowCount)return res.status(401).json({error:"Kullanıcı adı veya şifre hatalı."}); const u=r.rows[0]; if(!(await bcrypt.compare(password,u.password_hash)))return res.status(401).json({error:"Kullanıcı adı veya şifre hatalı."}); res.json({token:signToken(u),user:pub(u)});});
 app.get("/api/me",requireAuth,(req,res)=>res.json({user:req.user}));
@@ -33,6 +45,46 @@ app.post("/api/friends/:id/reject",requireAuth,async(req,res)=>{await query(`DEL
 app.delete("/api/friends/:uid",requireAuth,async(req,res)=>{await query(`DELETE FROM friendships WHERE (requester_id=$1 AND addressee_id=$2) OR (requester_id=$2 AND addressee_id=$1)`,[req.user.id,Number(req.params.uid)]); res.json({ok:true});});
 app.get("/api/dms/:uid/messages",requireAuth,async(req,res)=>{const uid=Number(req.params.uid); if(!(await friends(req.user.id,uid)))return res.status(403).json({error:"DM için önce arkadaş olmalısınız."}); const r=await query(`SELECT dm.*,u.username,u.avatar FROM direct_messages dm JOIN users u ON u.id=dm.sender_id WHERE (sender_id=$1 AND receiver_id=$2) OR (sender_id=$2 AND receiver_id=$1) ORDER BY dm.id LIMIT 200`,[req.user.id,uid]); res.json({messages:r.rows});});
 app.post("/api/dms/:uid/messages",requireAuth,async(req,res)=>{const uid=Number(req.params.uid); if(!(await friends(req.user.id,uid)))return res.status(403).json({error:"DM için önce arkadaş olmalısınız."}); const content=String(req.body.content||"").trim(); if(!content)return res.status(400).json({error:"Mesaj boş."}); const r=await query(`INSERT INTO direct_messages(sender_id,receiver_id,content) VALUES($1,$2,$3) RETURNING *`,[req.user.id,uid,content.slice(0,2000)]); const msg={...r.rows[0],username:req.user.username,avatar:req.user.avatar}; io.to(`user:${uid}`).emit("dm:new",msg); io.to(`user:${req.user.id}`).emit("dm:new",msg); res.json({message:msg});});
+
+app.post("/api/servers/:sid/invites", requireAuth, async(req,res)=>{
+ const sid=Number(req.params.sid);
+ const m=await member(req.user.id,sid);
+ if(!m)return res.status(403).json({error:"Bu sunucuda değilsin."});
+ const code=inviteCode();
+ const max_uses=Number(req.body.max_uses||0);
+ const hours=Number(req.body.hours||0);
+ const exp=hours>0?`NOW() + INTERVAL '${Math.min(hours,720)} hours'`:null;
+ const sql=exp
+  ? `INSERT INTO server_invites(server_id,creator_id,code,max_uses,expires_at) VALUES($1,$2,$3,$4,${exp}) RETURNING *`
+  : `INSERT INTO server_invites(server_id,creator_id,code,max_uses) VALUES($1,$2,$3,$4) RETURNING *`;
+ const r=await query(sql,[sid,req.user.id,code,max_uses]);
+ await query(`INSERT INTO audit_logs(server_id,user_id,action) VALUES($1,$2,$3)`,[sid,req.user.id,`${req.user.username} davet linki oluşturdu.`]);
+ res.json({invite:r.rows[0], url:`/invite/${code}`});
+});
+
+app.get("/api/invites/:code", requireAuth, async(req,res)=>{
+ const code=String(req.params.code||"").toUpperCase();
+ const r=await query(`SELECT i.*,s.name,s.icon,s.color,s.description FROM server_invites i JOIN servers s ON s.id=i.server_id WHERE i.code=$1`,[code]);
+ if(!r.rowCount)return res.status(404).json({error:"Davet bulunamadı."});
+ const inv=r.rows[0];
+ if(inv.expires_at && new Date(inv.expires_at)<new Date())return res.status(410).json({error:"Davet süresi bitmiş."});
+ if(inv.max_uses>0 && inv.uses>=inv.max_uses)return res.status(410).json({error:"Davet kullanım hakkı dolmuş."});
+ res.json({invite:inv});
+});
+
+app.post("/api/invites/:code/join", requireAuth, async(req,res)=>{
+ const code=String(req.params.code||"").toUpperCase();
+ const r=await query(`SELECT * FROM server_invites WHERE code=$1`,[code]);
+ if(!r.rowCount)return res.status(404).json({error:"Davet bulunamadı."});
+ const inv=r.rows[0];
+ if(inv.expires_at && new Date(inv.expires_at)<new Date())return res.status(410).json({error:"Davet süresi bitmiş."});
+ if(inv.max_uses>0 && inv.uses>=inv.max_uses)return res.status(410).json({error:"Davet kullanım hakkı dolmuş."});
+ await query(`INSERT INTO server_members(server_id,user_id,role) VALUES($1,$2,'Member') ON CONFLICT DO NOTHING`,[inv.server_id,req.user.id]);
+ await query(`UPDATE server_invites SET uses=uses+1 WHERE id=$1`,[inv.id]);
+ await query(`INSERT INTO audit_logs(server_id,user_id,action) VALUES($1,$2,$3)`,[inv.server_id,req.user.id,`${req.user.username} davet linki ile katıldı.`]);
+ res.json({ok:true,server_id:inv.server_id});
+});
+
 app.post("/api/servers",requireAuth,async(req,res)=>{const name=String(req.body.name||"").trim().slice(0,80); if(!name)return res.status(400).json({error:"Sunucu adı gerekli."}); const icon=String(req.body.icon||name[0]||"S").slice(0,2).toUpperCase(), color=String(req.body.color||"#5865f2").slice(0,20), description=String(req.body.description||"").slice(0,300); const s=await query(`INSERT INTO servers(name,icon,color,description,owner_id) VALUES($1,$2,$3,$4,$5) RETURNING *`,[name,icon,color,description,req.user.id]); const server=s.rows[0]; await query(`INSERT INTO server_members(server_id,user_id,role) VALUES($1,$2,'Owner')`,[server.id,req.user.id]); const ch=(await query(`INSERT INTO channels(server_id,name,type,category,topic) VALUES($1,'genel','text','YAZI','Genel sohbet'),($1,'sesli-sohbet','voice','SES','Sesli sohbet') RETURNING *`,[server.id])).rows; res.json({server,channels:ch});});
 app.post("/api/servers/:sid/channels",requireAuth,async(req,res)=>{const sid=Number(req.params.sid); if(!(await member(req.user.id,sid)))return res.status(403).json({error:"Bu sunucuda değilsin."}); const name=String(req.body.name||"").trim().toLowerCase().replace(/\s+/g,"-").slice(0,80); if(!name)return res.status(400).json({error:"Kanal adı gerekli."}); const type=["text","announcement","voice","stage"].includes(req.body.type)?req.body.type:"text", category=String(req.body.category||(type==='voice'?'SES':'YAZI')).slice(0,40), topic=String(req.body.topic||"").slice(0,300); const r=await query(`INSERT INTO channels(server_id,name,type,category,topic) VALUES($1,$2,$3,$4,$5) RETURNING *`,[sid,name,type,category,topic]); io.emit("channel:new",r.rows[0]); res.json({channel:r.rows[0]});});
 app.get("/api/channels/:cid/messages",requireAuth,async(req,res)=>{const cid=Number(req.params.cid), ch=await chServer(cid); if(!ch)return res.status(404).json({error:"Kanal yok."}); if(!(await member(req.user.id,ch.server_id)))return res.status(403).json({error:"Bu sunucuda değilsin."}); const r=await query(`SELECT m.*,u.username,u.avatar,COALESCE(json_object_agg(x.emoji,x.count) FILTER (WHERE x.emoji IS NOT NULL),'{}') reactions FROM messages m JOIN users u ON u.id=m.user_id LEFT JOIN (SELECT message_id,emoji,COUNT(*)::int count FROM reactions GROUP BY message_id,emoji) x ON x.message_id=m.id WHERE m.channel_id=$1 GROUP BY m.id,u.username,u.avatar ORDER BY m.id LIMIT 200`,[cid]); res.json({messages:r.rows});});
