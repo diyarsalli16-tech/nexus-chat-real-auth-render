@@ -1,20 +1,13 @@
-# Nexus Chat V3 Polished
+# Nexus Chat V4 DM Fix
 
-Düzeltilenler:
-- DM arama paneli yenilendi.
-- DM sesli arama için WebRTC signaling eklendi.
-- Mikrofon kapat/aç, kamera aç/kapat, ekran paylaşımı, ses seviyesi paneli eklendi.
-- Gelen arama bildirimi eklendi.
-- Sunucu davet linki oluşturma ve davet linkinden katılma eklendi.
-- /invite/CODE linkleri sunucu kartı gösterir.
-- Mobil düzen iyileştirildi.
+Bu sürüm DM sorunlarını düzeltir:
 
-Kurulum:
-1. Dosyaları eski proje klasörünün üstüne kopyala.
-2. git add .
-3. git commit -m "polish call panel invite and mobile"
-4. git push
-5. Render redeploy.
+- DM mesajı socket gecikse bile anında ekrana düşer.
+- DM mesajı hata verirse input geri gelir ve hata gösterilir.
+- Mikrofon ses seviyesi slider'ı gerçekten WebAudio gain ile çalışır.
+- Arama panelinde durum/talimat gösterir.
+- Arama kapanınca mikrofon, kamera, ekran ve peer connection temizlenir.
 
 Not:
-P2P WebRTC bazı ağlarda TURN sunucusu ister. STUN ile çoğu basit durumda çalışır. Eğer iki farklı internet arasında ses yine gitmezse TURN eklemek gerekir.
+WebRTC ses için iki kullanıcı aynı anda online olmalı ve aramayı karşı taraf kabul etmelidir.
+Farklı ağlarda hâlâ ses gitmezse TURN sunucusu gerekir.

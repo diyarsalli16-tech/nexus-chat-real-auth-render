@@ -1,6 +1,6 @@
 {
-  "name": "nexus-chat-v3-polished",
-  "version": "3.0.0",
+  "name": "nexus-chat-v4-dm-fix",
+  "version": "4.0.0",
   "private": true,
   "type": "module",
   "scripts": {
