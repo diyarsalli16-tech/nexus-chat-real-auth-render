@@ -26,6 +26,34 @@ const allowedOrigin = process.env.CLIENT_ORIGIN || (isProd ? undefined : "http:/
 app.use(cors({ origin: allowedOrigin || true, credentials: true }));
 app.use(express.json({ limit: "2mb" }));
 
+app.get("/api/rtc-config", (_, res) => {
+  const iceServers = [
+    { urls: "stun:stun.l.google.com:19302" }
+  ];
+
+  if (process.env.TURN_URL && process.env.TURN_USERNAME && process.env.TURN_CREDENTIAL) {
+    iceServers.push({
+      urls: process.env.TURN_URL.split(",").map(s => s.trim()).filter(Boolean),
+      username: process.env.TURN_USERNAME,
+      credential: process.env.TURN_CREDENTIAL
+    });
+  } else {
+    // Test için public TURN. Üretimde kendi TURN hesabını ENV ile gir.
+    iceServers.push({
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp"
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    });
+  }
+
+  res.json({ iceServers });
+});
+
+
 const io = new Server(httpServer, {
   cors: { origin: allowedOrigin || true, credentials: true }
 });

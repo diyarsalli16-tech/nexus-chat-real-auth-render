@@ -1,13 +1,17 @@
-# Nexus Chat V4.1 DM Real Fix
+# Nexus Chat V5 TURN + Debug
 
-Bu sürüm önceki V4 paketindeki asıl hatayı düzeltir.
+Bu sürüm DM ses aramasında "Bağlanıyor..." kalma sorununu hedefler.
 
-Düzeltmeler:
-- DM mesajı API cevabıyla anında ekrana düşer.
-- Mesaj gönderimi hata verirse yazı input'a geri gelir ve hata gösterilir.
-- Mikrofon slider'ı WebAudio gain ile gerçekten mikrofon sesine etki eder.
-- Arama kapatılınca mikrofon, raw mic stream, ekran paylaşımı, peer connection ve audio context temizlenir.
-- Arama panelinde durum/talimat görünür.
+Eklenenler:
+- WebRTC için TURN fallback eklendi.
+- /api/rtc-config endpoint'i eklendi.
+- İstersen kendi TURN bilgilerini Render Environment Variables'a ekleyebilirsin:
+  - TURN_URL=turn:senin-turn-hostun:3478
+  - TURN_USERNAME=...
+  - TURN_CREDENTIAL=...
+- Arama panelinde ICE / connection state görünür.
+- Remote audio/video geldiğinde video elementine zorla bağlanır.
+- Mikrofon API yoksa net hata verir.
 
 Not:
-WebRTC iki farklı ağda hâlâ ses vermiyorsa TURN sunucusu gerekir.
+İki cihaz farklı ağdaysa TURN zorunlu olabilir. Public TURN test içindir; gerçek ürün için kendi TURN sunucunu kullan.

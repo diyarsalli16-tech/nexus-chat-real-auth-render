@@ -1,6 +1,6 @@
 {
-  "name": "nexus-chat-v4-dm-real-fix",
-  "version": "4.1.0",
+  "name": "nexus-chat-v5-turn-debug",
+  "version": "5.0.0",
   "private": true,
   "type": "module",
   "scripts": {

@@ -1,7 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const API = "";
-const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+const defaultRtcConfig = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    {
+      urls: [
+        "turn:openrelay.metered.ca:80",
+        "turn:openrelay.metered.ca:443",
+        "turn:openrelay.metered.ca:443?transport=tcp"
+      ],
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    }
+  ]
+};
 const channelIcon = (type) => type === "voice" ? "🔊" : type === "stage" ? "🎙" : type === "announcement" ? "📢" : "#";
 
 function token() { return localStorage.getItem("nexus_token"); }
@@ -78,6 +91,7 @@ export default function App({ ioFactory }) {
   const micGainRef = useRef(null);
   const screenStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
+  const rtcConfigRef = useRef(defaultRtcConfig);
 
   const activeServer = servers.find(s => s.id === activeServerId);
   const serverChannels = channels.filter(c => c.server_id === activeServerId);
@@ -149,6 +163,15 @@ export default function App({ ioFactory }) {
       setError(err.message || "Davet açılamadı.");
     }
   }
+
+  useEffect(() => {
+    fetch("/api/rtc-config")
+      .then(r => r.json())
+      .then(data => {
+        if (data?.iceServers?.length) rtcConfigRef.current = { iceServers: data.iceServers };
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (token()) loadBootstrap().catch(() => localStorage.removeItem("nexus_token"));
@@ -233,7 +256,10 @@ export default function App({ ioFactory }) {
 
   useEffect(() => {
     if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
-    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStreamRef.current;
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = remoteStreamRef.current;
+      remoteVideoRef.current.play?.().catch(() => {});
+    }
     if (screenVideoRef.current) screenVideoRef.current.srcObject = screenStreamRef.current;
   }, [call]);
 
@@ -407,6 +433,10 @@ export default function App({ ioFactory }) {
   async function getAudioStream() {
     if (localStreamRef.current?.getAudioTracks().length) return localStreamRef.current;
 
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Tarayıcı mikrofon API'sini vermiyor. HTTPS Render linkiyle aç.");
+    }
+
     const raw = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
@@ -445,15 +475,31 @@ export default function App({ ioFactory }) {
   async function ensurePeer(peerId) {
     if (pcRef.current) return pcRef.current;
 
-    const pc = new RTCPeerConnection(rtcConfig);
+    const pc = new RTCPeerConnection(rtcConfigRef.current);
     pcRef.current = pc;
 
     pc.onicecandidate = e => {
       if (e.candidate && socket) socket.emit("rtc:candidate", { to: peerId, candidate: e.candidate });
     };
 
+    pc.oniceconnectionstatechange = () => {
+      setCall(c => ({ ...c, status: `ICE: ${pc.iceConnectionState}` }));
+    };
+
+    pc.onconnectionstatechange = () => {
+      setCall(c => ({ ...c, status: `Bağlantı: ${pc.connectionState}` }));
+    };
+
+    pc.onsignalingstatechange = () => {
+      console.log("Nexus RTC signaling:", pc.signalingState);
+    };
+
     pc.ontrack = e => {
       remoteStreamRef.current = e.streams[0];
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = e.streams[0];
+        remoteVideoRef.current.play?.().catch(() => {});
+      }
       setCall(c => ({ ...c, status: "Ses bağlantısı geldi" }));
     };
 
@@ -476,8 +522,8 @@ export default function App({ ioFactory }) {
         incoming: null
       }));
       socket.emit("dm:call:invite", { to: dmUser.id });
-    } catch {
-      setError("Mikrofon izni verilmedi.");
+    } catch (err) {
+      setError(err.message || "Mikrofon izni verilmedi.");
     }
   }
 
@@ -495,8 +541,8 @@ export default function App({ ioFactory }) {
       }));
       socket.emit("dm:call:accept", { to: call.incoming.from });
       await ensurePeer(call.incoming.from);
-    } catch {
-      setError("Mikrofon izni verilmedi.");
+    } catch (err) {
+      setError(err.message || "Mikrofon izni verilmedi.");
     }
   }
 
