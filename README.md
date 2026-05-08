@@ -1,31 +1,20 @@
-# Nexus Chat Real Social
+# Nexus Chat V3 Polished
 
-Bu sürüm gerçek sosyal sistem ekler:
+Düzeltilenler:
+- DM arama paneli yenilendi.
+- DM sesli arama için WebRTC signaling eklendi.
+- Mikrofon kapat/aç, kamera aç/kapat, ekran paylaşımı, ses seviyesi paneli eklendi.
+- Gelen arama bildirimi eklendi.
+- Sunucu davet linki oluşturma ve davet linkinden katılma eklendi.
+- /invite/CODE linkleri sunucu kartı gösterir.
+- Mobil düzen iyileştirildi.
 
-- Kullanıcı arama
-- Arkadaşlık isteği gönderme
-- Gelen isteği kabul/reddet
-- Gönderilen isteği iptal
-- Arkadaş silme
-- Arkadaşlar arasında DM
-- DM mesajları PostgreSQL'e kaydolur
-- DM mesajları Socket.io ile canlı gelir
-- Test hesapları: admin/123456 ve nova/123456
+Kurulum:
+1. Dosyaları eski proje klasörünün üstüne kopyala.
+2. git add .
+3. git commit -m "polish call panel invite and mobile"
+4. git push
+5. Render redeploy.
 
-## Mevcut Render projesine yükleme
-
-Bu zipin içindeki dosyaları eski `nexus-chat-real-auth-render` klasörünün üzerine kopyala.
-
-Sonra CMD:
-
-```cmd
-git add .
-git commit -m "add real friends and dm"
-git push
-```
-
-Render otomatik redeploy eder. Environment Variables aynı kalacak:
-
-- NODE_ENV=production
-- JWT_SECRET=...
-- DATABASE_URL=postgresql://...
+Not:
+P2P WebRTC bazı ağlarda TURN sunucusu ister. STUN ile çoğu basit durumda çalışır. Eğer iki farklı internet arasında ses yine gitmezse TURN eklemek gerekir.

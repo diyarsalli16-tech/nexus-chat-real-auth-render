@@ -1,6 +1,6 @@
 {
-  "name": "nexus-client",
-  "version": "2.0.0",
+  "name": "nexus-chat-v3-client",
+  "version": "3.0.0",
   "private": true,
   "type": "module",
   "scripts": {

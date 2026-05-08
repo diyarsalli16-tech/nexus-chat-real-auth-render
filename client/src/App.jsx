@@ -1,68 +1,833 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-const API="";
-const icon=t=>t==="voice"?"🔊":t==="stage"?"🎙":t==="announcement"?"📢":"#";
-const tok=()=>localStorage.getItem("nexus_token");
-async function api(path,opt={}){const r=await fetch(API+path,{...opt,headers:{"Content-Type":"application/json",...(tok()?{Authorization:`Bearer ${tok()}`}:{}) ,...(opt.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||"İstek başarısız");return d}
-const tm=d=>new Date(d).toLocaleTimeString("tr-TR",{hour:"2-digit",minute:"2-digit"});
-export default function App({ioFactory}){
- const [authMode,setAuthMode]=useState("login"),[auth,setAuth]=useState({username:"",password:""}),[user,setUser]=useState(null),[servers,setServers]=useState([]),[channels,setChannels]=useState([]),[members,setMembers]=useState([]),[sid,setSid]=useState(null),[cid,setCid]=useState(null),[messages,setMessages]=useState([]),[draft,setDraft]=useState(""),[tab,setTab]=useState("friends"),[modal,setModal]=useState(null),[err,setErr]=useState(""),[toast,setToast]=useState("Hazır"),[socket,setSocket]=useState(null),[friends,setFriends]=useState({friends:[],incoming:[],outgoing:[]}),[q,setQ]=useState(""),[results,setResults]=useState([]),[dmUser,setDmUser]=useState(null),[dmMessages,setDmMessages]=useState([]),[dmDraft,setDmDraft]=useState(""),[audit,setAudit]=useState([]),[invite,setInvite]=useState(null),[inviteCodeText,setInviteCodeText]=useState(""),[incomingCall,setIncomingCall]=useState(null),[dmCall,setDmCall]=useState({active:false,target:null}),[remoteStream,setRemoteStream]=useState(null),[localStream,setLocalStream]=useState(null),[screenStream,setScreenStream]=useState(null),[voice,setVoice]=useState(false);
- const vref=useRef(null),sref=useRef(null),remoteAudioRef=useRef(null),dmPeerRef=useRef(null),dmTargetRef=useRef(null),socketRef=useRef(null); const server=servers.find(s=>s.id===sid), sch=channels.filter(c=>c.server_id===sid), channel=channels.find(c=>c.id===cid), smembers=members.filter(m=>m.server_id===sid);
- const groups=useMemo(()=>{const g={};sch.forEach(c=>{(g[c.category]??=[]).push(c)});return g},[sch]);
- const show=m=>{setToast(m);clearTimeout(window.__t);window.__t=setTimeout(()=>setToast("Hazır"),2200)};
- async function boot(){const d=await api("/api/bootstrap");setUser(d.user);setServers(d.servers);setChannels(d.channels);setMembers(d.members);if(d.servers[0]){setSid(d.servers[0].id);const f=d.channels.find(c=>c.server_id===d.servers[0].id);if(f)setCid(f.id)} await loadFriends()}
- async function loadFriends(){const d=await api("/api/friends");setFriends(d)}
- useEffect(()=>{if(tok())boot().catch(()=>localStorage.removeItem("nexus_token"))},[]);
- useEffect(()=>{if(!user||!tok())return;const s=ioFactory("/",{auth:{token:tok()}});s.on("connect",()=>show("Canlı bağlantı açık"));s.on("message:new",m=>setMessages(o=>o.some(x=>x.id===m.id)?o:[...o,m]));s.on("message:update",m=>setMessages(o=>o.map(x=>x.id===m.id?{...x,...m}:x)));s.on("message:delete",({id})=>setMessages(o=>o.filter(x=>x.id!==id)));s.on("reaction:update",()=>cid&&loadMessages(cid,false));s.on("channel:new",c=>setChannels(o=>o.some(x=>x.id===c.id)?o:[...o,c]));s.on("friend:request",()=>{loadFriends();show("Yeni arkadaşlık isteği")});s.on("friend:accepted",()=>{loadFriends();show("Arkadaşlık isteği kabul edildi")});s.on("dm:new",m=>{if(dmUser&&(m.sender_id===dmUser.id||m.receiver_id===dmUser.id))setDmMessages(o=>o.some(x=>x.id===m.id)?o:[...o,m]);show("Yeni DM")});
-s.on("dm:voice-invite",({from})=>{setIncomingCall(from);show(`${from.username} sesli arama başlattı`)});
-s.on("dm:voice-accept",async({from})=>{show(`${from.username} aramayı kabul etti`);await startDmOffer(from)});
-s.on("dm:voice-decline",({from})=>{show(`${from.username} aramayı reddetti`);endDmCall(false)});
-s.on("dm:voice-end",()=>{show("Arama bitti");endDmCall(false)});
-s.on("dm:voice-signal",async({from,data})=>handleDmSignal(from,data));
-socketRef.current=s;setSocket(s);return()=>{socketRef.current=null;s.disconnect()}},[user,dmUser,cid]);
- useEffect(()=>{if(cid)loadMessages(cid)},[cid]); useEffect(()=>{if(socket&&cid)socket.emit("channel:join",cid)},[socket,cid]); useEffect(()=>{if(vref.current)vref.current.srcObject=localStream},[localStream]); useEffect(()=>{if(sref.current)sref.current.srcObject=screenStream},[screenStream]); useEffect(()=>{if(remoteAudioRef.current)remoteAudioRef.current.srcObject=remoteStream},[remoteStream]);
- async function loadMessages(id,quiet=true){const ch=channels.find(c=>c.id===id);if(ch&&["voice","stage"].includes(ch.type)){setMessages([]);return}try{const d=await api(`/api/channels/${id}/messages`);setMessages(d.messages)}catch(e){if(quiet)setErr(e.message)}}
- async function submitAuth(e){e.preventDefault();setErr("");try{const d=await api(authMode==="login"?"/api/auth/login":"/api/auth/register",{method:"POST",body:JSON.stringify(auth)});localStorage.setItem("nexus_token",d.token);setUser(d.user);await boot()}catch(e){setErr(e.message)}}
- const logout=()=>{localStorage.removeItem("nexus_token");location.reload()};
- async function sendMessage(){const content=draft.trim();if(!content||!channel)return;setDraft("");try{await api(`/api/channels/${channel.id}/messages`,{method:"POST",body:JSON.stringify({content})})}catch(e){setErr(e.message)}}
- async function react(m,e){await api(`/api/messages/${m.id}/react`,{method:"POST",body:JSON.stringify({emoji:e})});await loadMessages(cid,false)}
- async function pin(m){const d=await api(`/api/messages/${m.id}/pin`,{method:"POST"});setMessages(o=>o.map(x=>x.id===m.id?{...x,...d.message}:x))}
- async function del(m){await api(`/api/messages/${m.id}`,{method:"DELETE"});setMessages(o=>o.filter(x=>x.id!==m.id))}
- async function edit(m){const content=prompt("Yeni mesaj:",m.content);if(!content)return;const d=await api(`/api/messages/${m.id}`,{method:"PATCH",body:JSON.stringify({content})});setMessages(o=>o.map(x=>x.id===m.id?{...x,...d.message}:x))}
- async function searchUsers(){if(q.trim().length<2)return setResults([]);const d=await api(`/api/users/search?q=${encodeURIComponent(q.trim())}`);setResults(d.users)}
- async function reqFriend(username){try{await api("/api/friends/request",{method:"POST",body:JSON.stringify({username})});await loadFriends();show(`${username} isteği gönderildi`)}catch(e){setErr(e.message)}}
- async function accept(id){await api(`/api/friends/${id}/accept`,{method:"POST"});await loadFriends()}
- async function reject(id){await api(`/api/friends/${id}/reject`,{method:"POST"});await loadFriends()}
- async function removeFriend(id){await api(`/api/friends/${id}`,{method:"DELETE"});if(dmUser?.id===id){setDmUser(null);setDmMessages([])}await loadFriends()}
- async function openDm(u){setDmUser(u);setTab("dm");const d=await api(`/api/dms/${u.id}/messages`);setDmMessages(d.messages)}
- async function sendDm(){if(!dmUser||!dmDraft.trim())return;const content=dmDraft.trim();setDmDraft("");await api(`/api/dms/${dmUser.id}/messages`,{method:"POST",body:JSON.stringify({content})})}
- async function createDmPeer(to){const pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});dmPeerRef.current=pc;dmTargetRef.current=to;pc.onicecandidate=e=>{if(e.candidate)socketRef.current?.emit("dm:voice-signal",{to,data:{type:"candidate",candidate:e.candidate}})};pc.ontrack=e=>setRemoteStream(e.streams[0]);let stream=localStream;if(!stream){stream=await navigator.mediaDevices.getUserMedia({audio:true,video:false});setLocalStream(stream)}stream.getTracks().forEach(t=>pc.addTrack(t,stream));return pc}
- async function startDmCall(){if(!dmUser)return;try{await navigator.mediaDevices.getUserMedia({audio:true,video:false}).then(s=>setLocalStream(s));setDmCall({active:true,target:dmUser});dmTargetRef.current=dmUser.id;socketRef.current?.emit("dm:voice-invite",{to:dmUser.id});show(`${dmUser.username} aranıyor...`)}catch(e){setErr("Mikrofon izni verilmedi.")}}
- async function acceptDmCall(){if(!incomingCall)return;try{const s=await navigator.mediaDevices.getUserMedia({audio:true,video:false});setLocalStream(s);setDmUser(incomingCall);setTab("dm");setDmCall({active:true,target:incomingCall});dmTargetRef.current=incomingCall.id;socketRef.current?.emit("dm:voice-accept",{to:incomingCall.id});setIncomingCall(null);show("Arama kabul edildi")}catch(e){setErr("Mikrofon izni verilmedi.")}}
- function declineDmCall(){if(incomingCall)socketRef.current?.emit("dm:voice-decline",{to:incomingCall.id});setIncomingCall(null)}
- async function startDmOffer(from){setDmCall({active:true,target:from});dmTargetRef.current=from.id;const pc=await createDmPeer(from.id);const offer=await pc.createOffer();await pc.setLocalDescription(offer);socketRef.current?.emit("dm:voice-signal",{to:from.id,data:{type:"offer",sdp:offer}})}
- async function handleDmSignal(from,data){try{let pc=dmPeerRef.current;if(data.type==="offer"){if(!pc)pc=await createDmPeer(from);await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));const ans=await pc.createAnswer();await pc.setLocalDescription(ans);socketRef.current?.emit("dm:voice-signal",{to:from,data:{type:"answer",sdp:ans}});setDmCall({active:true,target:dmUser||{id:from,username:"DM",avatar:"D"}})}else if(data.type==="answer"&&pc){await pc.setRemoteDescription(new RTCSessionDescription(data.sdp))}else if(data.type==="candidate"&&pc){await pc.addIceCandidate(new RTCIceCandidate(data.candidate))}}catch(e){setErr("DM ses bağlantısı kurulamadı: "+e.message)}}
- function endDmCall(send=true){const to=dmTargetRef.current;dmPeerRef.current?.close();dmPeerRef.current=null;localStream?.getTracks().forEach(t=>t.stop());setLocalStream(null);setRemoteStream(null);setDmCall({active:false,target:null});if(send&&to)socketRef.current?.emit("dm:voice-end",{to})}
- async function createServer(f){const d=await api("/api/servers",{method:"POST",body:JSON.stringify(f)});setServers(o=>[...o,d.server]);setChannels(o=>[...o,...d.channels]);setSid(d.server.id);setCid(d.channels[0]?.id);setModal(null)}
- async function createChannel(f){const d=await api(`/api/servers/${sid}/channels`,{method:"POST",body:JSON.stringify(f)});setChannels(o=>[...o,d.channel]);setCid(d.channel.id);setModal(null)}
- async function loadAudit(){if(!sid)return;const d=await api(`/api/audit/${sid}`);setAudit(d.audit)}
- async function createInvite(){try{const d=await api(`/api/servers/${sid}/invites`,{method:"POST",body:JSON.stringify({max_uses:0,hours:0})});setInvite(d.invite);setInviteCodeText(d.invite.code);show("Davet linki oluşturuldu")}catch(e){setErr(e.message)}}
- async function joinInvite(){try{const code=inviteCodeText.trim().toUpperCase().replace(location.origin+"/invite/","").replace("/invite/","");const d=await api(`/api/invites/${code}/join`,{method:"POST"});show("Sunucuya katıldın");await boot();setModal(null);if(d.server_id)setSid(d.server_id)}catch(e){setErr(e.message)}}
- async function joinVoice(){try{const st=await navigator.mediaDevices.getUserMedia({audio:true,video:false});setLocalStream(st);setVoice(true);socket?.emit("voice:join",channel.id);show("Mikrofon izni alındı")}catch{setErr("Mikrofon izni verilmedi")}}
- async function cam(){try{const st=await navigator.mediaDevices.getUserMedia({video:true,audio:voice});setLocalStream(st)}catch{setErr("Kamera izni verilmedi")}}
- async function screen(){try{if(screenStream){screenStream.getTracks().forEach(t=>t.stop());setScreenStream(null);return}const st=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});setScreenStream(st)}catch{setErr("Ekran paylaşımı iptal")}}
- function leave(){localStream?.getTracks().forEach(t=>t.stop());screenStream?.getTracks().forEach(t=>t.stop());setLocalStream(null);setScreenStream(null);setVoice(false);socket?.emit("voice:leave",channel?.id)}
- if(!user)return <div className="authPage"><form className="authCard" onSubmit={submitAuth}><div className="brand">N</div><h1>{authMode==="login"?"Giriş Yap":"Kaydol"}</h1><p>Kayıt gerçek veritabanına gider. Şifre hashlenir.</p><input value={auth.username} onChange={e=>setAuth({...auth,username:e.target.value})} placeholder="Kullanıcı adı"/><input type="password" value={auth.password} onChange={e=>setAuth({...auth,password:e.target.value})} placeholder="Şifre"/>{err&&<div className="error">{err}</div>}<button>{authMode==="login"?"Giriş Yap":"Hesap Oluştur"}</button><span onClick={()=>setAuthMode(authMode==="login"?"register":"login")}>{authMode==="login"?"Hesabın yok mu? Kaydol":"Hesabın var mı? Giriş yap"}</span><small>Test: admin/123456 ve nova/123456</small></form></div>;
- return <div className="app"><aside className="serverRail"><button className={`serverIcon ${tab==="friends"?"active":""}`} onClick={()=>setTab("friends")}>🏠</button>{servers.map(s=><button key={s.id} className={`serverIcon ${s.id===sid?"active":""}`} style={{background:s.color}} onClick={()=>{setSid(s.id);const f=channels.find(c=>c.server_id===s.id);setCid(f?.id);setTab("members")}}>{s.icon}</button>)}<button className="serverIcon add" onClick={()=>setModal("server")}>+</button><div className="railBottom"><button onClick={()=>setModal("settings")}>⚙</button><button onClick={logout}>⏻</button></div></aside><aside className="channelPanel"><div className="serverHeader" style={{background:`linear-gradient(135deg, ${server?.color||"#5865f2"}, #111827)`}}><h1>{tab==="friends"||tab==="dm"?"Ana Sayfa":server?.name}</h1><p>{tab==="friends"||tab==="dm"?"Arkadaşlar, istekler ve DM.":server?.description}</p></div><button className="serverBoost" onClick={()=>setTab("friends")}>👥 Arkadaşlar</button><button className="serverBoost" onClick={()=>{setTab("audit");loadAudit()}}>🛡 Audit / Sunucu</button><button className="serverBoost" onClick={()=>setModal("invite")}>🔗 Davet Linki</button><div className="channelScroll">{Object.entries(groups).map(([cat,list])=><section key={cat}><div className="groupTitle"><span>{cat}</span><button onClick={()=>setModal("channel")}>+</button></div>{list.map(c=><button key={c.id} className={`channelBtn ${c.id===cid?"active":""}`} onClick={()=>{setCid(c.id);setTab(["voice","stage"].includes(c.type)?"voice":"members")}}>{icon(c.type)} {c.name}</button>)}</section>)}</div><div className="userDock"><div className="avatar">{user.avatar}</div><div><b>{user.username}</b><p>{user.status}</p></div></div></aside><main className="content"><header className="topbar"><div><h2>{tab==="dm"?`💬 ${dmUser?.username}`:tab==="friends"?"👥 Arkadaşlar":`${icon(channel?.type)} ${channel?.name}`}</h2><p>{tab==="friends"?"Kullanıcı ara, istek gönder, DM aç.":channel?.topic}</p></div><div className="topActions"><button onClick={()=>setTab("friends")}>👥</button><button onClick={()=>setTab("members")}>Sunucu</button></div></header>{tab==="friends"?<FriendsPage friends={friends} q={q} setQ={setQ} searchUsers={searchUsers} results={results} reqFriend={reqFriend} accept={accept} reject={reject} removeFriend={removeFriend} openDm={openDm}/>:tab==="dm"?<DMPage dmUser={dmUser} messages={dmMessages} draft={dmDraft} setDraft={setDmDraft} send={sendDm} startCall={startDmCall} endCall={endDmCall} dmCall={dmCall} localStream={localStream} remoteAudioRef={remoteAudioRef}/>:(["voice","stage"].includes(channel?.type)?<section className="voiceRoom"><h1>{icon(channel.type)} {channel.name}</h1><p>{channel.topic}</p><div className="mediaGrid"><div className="mediaTile"><video ref={vref} autoPlay muted playsInline />{!localStream&&<span>Kamera/Mikrofon kapalı</span>}</div><div className="mediaTile"><video ref={sref} autoPlay muted playsInline />{!screenStream&&<span>Ekran paylaşımı kapalı</span>}</div></div><div className="callBar">{!voice?<button onClick={joinVoice}>Ses Kanalına Katıl</button>:<button onClick={leave}>Çık</button>}<button onClick={cam}>Kamera Aç/Kapat</button><button onClick={screen}>Ekran Paylaş</button></div></section>:<Chat messages={messages} user={user} channel={channel} draft={draft} setDraft={setDraft} send={sendMessage} react={react} pin={pin} del={del} edit={edit}/>)}</main><aside className="rightPanel"><div className="tabs"><button onClick={()=>setTab("friends")}>Arkadaş</button><button onClick={()=>setTab("members")}>Üye</button><button onClick={()=>{setTab("audit");loadAudit()}}>Audit</button></div>{tab==="members"&&smembers.map(m=><div className="memberCard" key={m.id}><div className="avatar">{m.avatar}</div><div><b>{m.username}</b><p>{m.role} • {m.status}</p><small>{m.bio}</small></div></div>)}{tab==="audit"&&audit.map(a=><div className="activity" key={a.id}><b>{tm(a.created_at)}</b><p>{a.action}</p></div>)}{(tab==="friends"||tab==="dm")&&<FriendSidebar friends={friends} openDm={openDm}/>}</aside>{incomingCall&&<div className="incomingCall"><b>{incomingCall.username} seni sesli arıyor</b><button onClick={acceptDmCall}>Kabul</button><button onClick={declineDmCall}>Reddet</button></div>}<div className="toast">{toast}</div>{err&&<div className="error floating" onClick={()=>setErr("")}>{err}</div>}{modal==="server"&&<ServerModal onClose={()=>setModal(null)} onCreate={createServer}/>} {modal==="channel"&&<ChannelModal onClose={()=>setModal(null)} onCreate={createChannel}/>} {modal==="settings"&&<SettingsModal user={user} setUser={setUser} onClose={()=>setModal(null)}/>} {modal==="invite"&&<InviteModal invite={invite} code={inviteCodeText} setCode={setInviteCodeText} createInvite={createInvite} joinInvite={joinInvite} onClose={()=>setModal(null)}/>}</div>}
-function FriendsPage({friends,q,setQ,searchUsers,results,reqFriend,accept,reject,removeFriend,openDm}){return <section className="friendsPage"><div className="friendSearch"><input value={q} onChange={e=>setQ(e.target.value)} onKeyDown={e=>e.key==="Enter"&&searchUsers()} placeholder="Kullanıcı adı ara: admin, nova..."/><button onClick={searchUsers}>Ara</button></div><div className="friendGrid"><Box title="Arama Sonuçları">{results.map(u=><Row key={u.id} u={u}><button onClick={()=>reqFriend(u.username)}>Ekle</button></Row>)}{!results.length&&<p className="muted">En az 2 harf yaz.</p>}</Box><Box title="Gelen İstekler">{friends.incoming.map(f=><Row key={f.id} u={f.other}><button onClick={()=>accept(f.id)}>Kabul</button><button onClick={()=>reject(f.id)}>Red</button></Row>)}{!friends.incoming.length&&<p className="muted">Gelen istek yok.</p>}</Box><Box title="Arkadaşlar">{friends.friends.map(f=><Row key={f.id} u={f.other}><button onClick={()=>openDm(f.other)}>DM</button><button onClick={()=>removeFriend(f.other.id)}>Sil</button></Row>)}{!friends.friends.length&&<p className="muted">Arkadaş yok.</p>}</Box><Box title="Gönderilen İstekler">{friends.outgoing.map(f=><Row key={f.id} u={f.other}><button onClick={()=>reject(f.id)}>İptal</button></Row>)}{!friends.outgoing.length&&<p className="muted">Bekleyen istek yok.</p>}</Box></div></section>}
-function Box({title,children}){return <div className="panelCard"><h3>{title}</h3>{children}</div>}
-function Row({u,children}){return <div className="friendRow"><div className="avatar">{u.avatar}</div><div><b>{u.username}</b><p>{u.bio||u.status}</p></div>{children}</div>}
-function FriendSidebar({friends,openDm}){return <><h3>DM Listesi</h3>{friends.friends.map(f=><div className="memberCard" key={f.id}><div className="avatar">{f.other.avatar}</div><div><b>{f.other.username}</b><p>{f.other.status}</p><button onClick={()=>openDm(f.other)}>Mesaj</button></div></div>)}</>}
-function DMPage({dmUser,messages,draft,setDraft,send,startCall,endCall,dmCall,localStream,remoteAudioRef}){return <section className="chat"><div className="messages"><div className="channelHero"><div className="heroIcon">💬</div><div><h2>{dmUser?.username}</h2><p>Özel mesaj + gerçek tarayıcı mikrofon izniyle DM sesli arama.</p><div className="dmCallBar">{dmCall.active?<><span>🔊 Sesli arama açık</span><button onClick={()=>endCall(true)}>Aramayı Bitir</button></>:<button onClick={startCall}>Sesli Ara</button>}<audio ref={remoteAudioRef} autoPlay></audio>{localStream&&<span className="muted">Mikrofon açık</span>}</div></div></div>{messages.map(m=><article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{tm(m.created_at)}</span></div><p>{m.content}</p></div></article>)}</div><div className="composer"><input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder={`${dmUser?.username} kullanıcısına mesaj yaz`}/><button onClick={send}>➤</button></div></section>}
-function Chat({messages,user,channel,draft,setDraft,send,react,pin,del,edit}){return <section className="chat"><div className="messages"><div className="channelHero"><div className="heroIcon">{icon(channel?.type)}</div><div><h2>{channel?.name}</h2><p>{channel?.topic}</p></div></div>{messages.map(m=><article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{tm(m.created_at)}</span>{m.pinned&&<span>📌</span>}</div><p>{m.content}</p><div className="reactions">{Object.entries(m.reactions||{}).map(([e,n])=><button key={e} onClick={()=>react(m,e)}>{e} {n}</button>)}</div><div className="messageActions"><button onClick={()=>react(m,"👍")}>👍</button><button onClick={()=>react(m,"🔥")}>🔥</button><button onClick={()=>pin(m)}>Pin</button>{m.user_id===user.id&&<button onClick={()=>edit(m)}>Düzenle</button>}<button onClick={()=>del(m)}>Sil</button></div></div></article>)}</div><div className="composer"><button>+</button><input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&send()} placeholder="Mesaj yaz"/><button onClick={send}>➤</button></div></section>}
-function InviteModal({invite,code,setCode,createInvite,joinInvite,onClose}){const url=invite?`${location.origin}/invite/${invite.code}`:"";return <Modal title="Davet Linki" onClose={onClose}><p className="muted">İnsanları sunucuya almak için gerçek davet kodu oluştur. Linki alan kişi giriş yaptıktan sonra kodla katılır.</p><button className="primary" onClick={createInvite}>Yeni Davet Oluştur</button>{invite&&<div className="inviteBox"><b>{url}</b><button onClick={()=>navigator.clipboard?.writeText(url)}>Kopyala</button></div>}<Field label="Davet kodu ile katıl" value={code} onChange={setCode}/><button className="primary" onClick={joinInvite}>Davetle Katıl</button></Modal>}
 
-function ServerModal({onClose,onCreate}){const[f,setF]=useState({name:"",icon:"S",color:"#5865f2",description:""});return <Modal title="Sunucu Oluştur" onClose={onClose}><Field label="Ad" value={f.name} onChange={v=>setF({...f,name:v})}/><Field label="İkon" value={f.icon} onChange={v=>setF({...f,icon:v})}/><Field label="Renk" type="color" value={f.color} onChange={v=>setF({...f,color:v})}/><Field label="Açıklama" value={f.description} onChange={v=>setF({...f,description:v})}/><button className="primary" onClick={()=>onCreate(f)}>Oluştur</button></Modal>}
-function ChannelModal({onClose,onCreate}){const[f,setF]=useState({name:"",type:"text",category:"YAZI",topic:""});return <Modal title="Kanal Oluştur" onClose={onClose}><Field label="Ad" value={f.name} onChange={v=>setF({...f,name:v})}/><label className="field"><span>Tip</span><select value={f.type} onChange={e=>setF({...f,type:e.target.value})}><option value="text">Yazı</option><option value="announcement">Duyuru</option><option value="voice">Ses</option><option value="stage">Stage</option></select></label><Field label="Kategori" value={f.category} onChange={v=>setF({...f,category:v})}/><Field label="Konu" value={f.topic} onChange={v=>setF({...f,topic:v})}/><button className="primary" onClick={()=>onCreate(f)}>Oluştur</button></Modal>}
-function SettingsModal({user,setUser,onClose}){const[bio,setBio]=useState(user.bio||""),[status,setStatus]=useState(user.status||"online");async function save(){const d=await api("/api/me",{method:"PATCH",body:JSON.stringify({bio,status})});setUser(d.user);onClose()}return <Modal title="Ayarlar" onClose={onClose}><Field label="Bio" value={bio} onChange={setBio}/><label className="field"><span>Durum</span><select value={status} onChange={e=>setStatus(e.target.value)}><option value="online">Çevrimiçi</option><option value="idle">Boşta</option><option value="dnd">Rahatsız etmeyin</option><option value="offline">Görünmez</option></select></label><button className="primary" onClick={save}>Kaydet</button></Modal>}
-function Field({label,value,onChange,type="text"}){return <label className="field"><span>{label}</span><input type={type} value={value} onChange={e=>onChange(e.target.value)}/></label>}
-function Modal({title,children,onClose}){return <div className="modalBg"><div className="modal"><button className="close" onClick={onClose}>×</button><h2>{title}</h2>{children}</div></div>}
+const API = "";
+const rtcConfig = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+const channelIcon = (type) => type === "voice" ? "🔊" : type === "stage" ? "🎙" : type === "announcement" ? "📢" : "#";
+
+function token() { return localStorage.getItem("nexus_token"); }
+
+async function api(path, options = {}) {
+  const res = await fetch(API + path, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token() ? { Authorization: `Bearer ${token()}` } : {}),
+      ...(options.headers || {})
+    }
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "İstek başarısız.");
+  return data;
+}
+
+function time(date) {
+  return new Date(date).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+}
+
+export default function App({ ioFactory }) {
+  const [authMode, setAuthMode] = useState("login");
+  const [authForm, setAuthForm] = useState({ username: "", password: "" });
+  const [user, setUser] = useState(null);
+
+  const [servers, setServers] = useState([]);
+  const [channels, setChannels] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [activeServerId, setActiveServerId] = useState(null);
+  const [activeChannelId, setActiveChannelId] = useState(null);
+
+  const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState("");
+
+  const [friends, setFriends] = useState({ friends: [], incoming: [], outgoing: [] });
+  const [userSearch, setUserSearch] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [dmUser, setDmUser] = useState(null);
+  const [dmMessages, setDmMessages] = useState([]);
+  const [dmDraft, setDmDraft] = useState("");
+
+  const [rightTab, setRightTab] = useState("friends");
+  const [modal, setModal] = useState(null);
+  const [error, setError] = useState("");
+  const [toast, setToast] = useState("Hazır");
+  const [audit, setAudit] = useState([]);
+  const [invitePreview, setInvitePreview] = useState(null);
+
+  const [socket, setSocket] = useState(null);
+
+  const [call, setCall] = useState({
+    active: false,
+    incoming: null,
+    peerId: null,
+    peerName: "",
+    status: "Kapalı",
+    muted: false,
+    camera: false,
+    screen: false,
+    localVolume: 100,
+    remoteVolume: 100
+  });
+
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const screenVideoRef = useRef(null);
+  const pcRef = useRef(null);
+  const localStreamRef = useRef(null);
+  const screenStreamRef = useRef(null);
+  const remoteStreamRef = useRef(null);
+
+  const activeServer = servers.find(s => s.id === activeServerId);
+  const serverChannels = channels.filter(c => c.server_id === activeServerId);
+  const activeChannel = channels.find(c => c.id === activeChannelId);
+  const serverMembers = members.filter(m => m.server_id === activeServerId);
+
+  const groupedChannels = useMemo(() => {
+    const groups = {};
+    serverChannels.forEach(c => {
+      groups[c.category] ??= [];
+      groups[c.category].push(c);
+    });
+    return groups;
+  }, [serverChannels]);
+
+  function show(msg) {
+    setToast(msg);
+    window.clearTimeout(window.__toast);
+    window.__toast = window.setTimeout(() => setToast("Hazır"), 2400);
+  }
+
+  async function loadBootstrap() {
+    const data = await api("/api/bootstrap");
+    setUser(data.user);
+    setServers(data.servers);
+    setChannels(data.channels);
+    setMembers(data.members);
+
+    if (data.servers[0]) {
+      const srv = data.servers[0];
+      setActiveServerId(srv.id);
+      const first = data.channels.find(c => c.server_id === srv.id);
+      if (first) setActiveChannelId(first.id);
+    }
+
+    await loadFriends();
+  }
+
+  async function loadFriends() {
+    const data = await api("/api/friends");
+    setFriends(data);
+  }
+
+  async function loadMessages(channelId, quiet = true) {
+    const ch = channels.find(c => c.id === channelId);
+    if (ch && ["voice", "stage"].includes(ch.type)) {
+      setMessages([]);
+      return;
+    }
+
+    try {
+      const data = await api(`/api/channels/${channelId}/messages`);
+      setMessages(data.messages);
+    } catch (err) {
+      if (quiet) setError(err.message);
+    }
+  }
+
+  async function handleInviteFromUrl() {
+    const match = location.pathname.match(/^\/invite\/([A-Z0-9]+)/i);
+    if (!match) return;
+
+    try {
+      const data = await fetch(`/api/invites/${match[1].toUpperCase()}`).then(r => r.json());
+      if (data.error) throw new Error(data.error);
+      setInvitePreview(data.invite);
+      setModal("invitePreview");
+    } catch (err) {
+      setError(err.message || "Davet açılamadı.");
+    }
+  }
+
+  useEffect(() => {
+    if (token()) loadBootstrap().catch(() => localStorage.removeItem("nexus_token"));
+    handleInviteFromUrl();
+  }, []);
+
+  useEffect(() => {
+    if (!user || !token()) return;
+
+    const s = ioFactory("/", { auth: { token: token() } });
+
+    s.on("connect", () => show("Canlı bağlantı açıldı"));
+    s.on("message:new", msg => setMessages(old => old.some(m => m.id === msg.id) ? old : [...old, msg]));
+    s.on("message:update", msg => setMessages(old => old.map(m => m.id === msg.id ? { ...m, ...msg } : m)));
+    s.on("message:delete", ({ id }) => setMessages(old => old.filter(m => m.id !== id)));
+    s.on("reaction:update", () => activeChannelId && loadMessages(activeChannelId, false));
+    s.on("channel:new", ch => setChannels(old => old.some(c => c.id === ch.id) ? old : [...old, ch]));
+
+    s.on("friend:request", () => { loadFriends(); show("Yeni arkadaş isteği"); });
+    s.on("friend:accepted", () => { loadFriends(); show("Arkadaşlık kabul edildi"); });
+
+    s.on("dm:new", msg => {
+      if (dmUser && (msg.sender_id === dmUser.id || msg.receiver_id === dmUser.id)) {
+        setDmMessages(old => old.some(m => m.id === msg.id) ? old : [...old, msg]);
+      }
+      show("Yeni DM");
+    });
+
+    s.on("dm:call:incoming", payload => {
+      setCall(c => ({ ...c, incoming: payload, status: `${payload.username} arıyor` }));
+      setRightTab("dm");
+    });
+
+    s.on("dm:call:accepted", async ({ from }) => {
+      setCall(c => ({ ...c, status: "Arama kabul edildi" }));
+      await createOffer(from);
+    });
+
+    s.on("dm:call:rejected", () => {
+      endCall(false);
+      show("Arama reddedildi");
+    });
+
+    s.on("dm:call:ended", () => {
+      endCall(false);
+      show("Arama kapandı");
+    });
+
+    s.on("rtc:offer", async ({ from, offer }) => {
+      await ensurePeer(from);
+      await pcRef.current.setRemoteDescription(offer);
+      const answer = await pcRef.current.createAnswer();
+      await pcRef.current.setLocalDescription(answer);
+      s.emit("rtc:answer", { to: from, answer });
+      setCall(c => ({ ...c, active: true, peerId: from, status: "Bağlandı" }));
+    });
+
+    s.on("rtc:answer", async ({ answer }) => {
+      if (pcRef.current) {
+        await pcRef.current.setRemoteDescription(answer);
+        setCall(c => ({ ...c, status: "Bağlandı" }));
+      }
+    });
+
+    s.on("rtc:candidate", async ({ candidate }) => {
+      try {
+        if (pcRef.current && candidate) await pcRef.current.addIceCandidate(candidate);
+      } catch {}
+    });
+
+    setSocket(s);
+    return () => s.disconnect();
+  }, [user, dmUser, activeChannelId]);
+
+  useEffect(() => {
+    if (activeChannelId) loadMessages(activeChannelId);
+  }, [activeChannelId]);
+
+  useEffect(() => {
+    if (socket && activeChannelId) socket.emit("channel:join", activeChannelId);
+  }, [socket, activeChannelId]);
+
+  useEffect(() => {
+    if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+    if (remoteVideoRef.current) remoteVideoRef.current.srcObject = remoteStreamRef.current;
+    if (screenVideoRef.current) screenVideoRef.current.srcObject = screenStreamRef.current;
+  }, [call]);
+
+  useEffect(() => {
+    if (remoteVideoRef.current) remoteVideoRef.current.volume = call.remoteVolume / 100;
+  }, [call.remoteVolume]);
+
+  async function submitAuth(e) {
+    e.preventDefault();
+    setError("");
+
+    try {
+      const data = await api(authMode === "login" ? "/api/auth/login" : "/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify(authForm)
+      });
+
+      localStorage.setItem("nexus_token", data.token);
+      setUser(data.user);
+      await loadBootstrap();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  function logout() {
+    localStorage.removeItem("nexus_token");
+    location.href = "/";
+  }
+
+  async function sendMessage() {
+    const content = draft.trim();
+    if (!content || !activeChannel) return;
+    setDraft("");
+
+    try {
+      await api(`/api/channels/${activeChannel.id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ content })
+      });
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function react(message, emoji) {
+    await api(`/api/messages/${message.id}/react`, { method: "POST", body: JSON.stringify({ emoji }) });
+    await loadMessages(activeChannelId, false);
+  }
+
+  async function pin(message) {
+    const data = await api(`/api/messages/${message.id}/pin`, { method: "POST" });
+    setMessages(old => old.map(m => m.id === message.id ? { ...m, ...data.message } : m));
+  }
+
+  async function del(message) {
+    await api(`/api/messages/${message.id}`, { method: "DELETE" });
+    setMessages(old => old.filter(m => m.id !== message.id));
+  }
+
+  async function edit(message) {
+    const content = prompt("Yeni mesaj:", message.content);
+    if (!content) return;
+    const data = await api(`/api/messages/${message.id}`, { method: "PATCH", body: JSON.stringify({ content }) });
+    setMessages(old => old.map(m => m.id === message.id ? { ...m, ...data.message } : m));
+  }
+
+  async function searchUsers() {
+    if (userSearch.trim().length < 2) return setSearchResults([]);
+    const data = await api(`/api/users/search?q=${encodeURIComponent(userSearch.trim())}`);
+    setSearchResults(data.users);
+  }
+
+  async function sendFriendRequest(username) {
+    try {
+      await api("/api/friends/request", { method: "POST", body: JSON.stringify({ username }) });
+      await loadFriends();
+      show(`${username} kullanıcısına istek gönderildi`);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function acceptFriend(id) {
+    await api(`/api/friends/${id}/accept`, { method: "POST" });
+    await loadFriends();
+  }
+
+  async function rejectFriend(id) {
+    await api(`/api/friends/${id}/reject`, { method: "POST" });
+    await loadFriends();
+  }
+
+  async function removeFriend(otherId) {
+    await api(`/api/friends/${otherId}`, { method: "DELETE" });
+    if (dmUser?.id === otherId) {
+      setDmUser(null);
+      setDmMessages([]);
+    }
+    await loadFriends();
+  }
+
+  async function openDm(other) {
+    setDmUser(other);
+    setRightTab("dm");
+    const data = await api(`/api/dms/${other.id}/messages`);
+    setDmMessages(data.messages);
+  }
+
+  async function sendDm() {
+    if (!dmUser || !dmDraft.trim()) return;
+    const content = dmDraft.trim();
+    setDmDraft("");
+    await api(`/api/dms/${dmUser.id}/messages`, { method: "POST", body: JSON.stringify({ content }) });
+  }
+
+  async function createServer(form) {
+    const data = await api("/api/servers", { method: "POST", body: JSON.stringify(form) });
+    setServers(old => [...old, data.server]);
+    setChannels(old => [...old, ...data.channels]);
+    setActiveServerId(data.server.id);
+    setActiveChannelId(data.channels[0]?.id);
+    setModal(null);
+  }
+
+  async function createChannel(form) {
+    const data = await api(`/api/servers/${activeServerId}/channels`, { method: "POST", body: JSON.stringify(form) });
+    setChannels(old => [...old, data.channel]);
+    setActiveChannelId(data.channel.id);
+    setModal(null);
+  }
+
+  async function createInvite() {
+    if (!activeServerId) return;
+    const data = await api(`/api/servers/${activeServerId}/invites`, { method: "POST", body: JSON.stringify({}) });
+    setModal({ type: "inviteCreated", url: data.url, invite: data.invite });
+  }
+
+  async function joinInvite(code) {
+    const data = await api(`/api/invites/${code}/join`, { method: "POST" });
+    show("Sunucuya katıldın");
+    setModal(null);
+    history.replaceState({}, "", "/");
+    await loadBootstrap();
+    setActiveServerId(data.server_id);
+  }
+
+  async function loadAudit() {
+    if (!activeServerId) return;
+    const data = await api(`/api/audit/${activeServerId}`);
+    setAudit(data.audit);
+  }
+
+  async function getAudioStream() {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      },
+      video: false
+    });
+
+    localStreamRef.current = stream;
+    setCall(c => ({ ...c }));
+    return stream;
+  }
+
+  async function ensurePeer(peerId) {
+    if (pcRef.current) return pcRef.current;
+
+    const pc = new RTCPeerConnection(rtcConfig);
+    pcRef.current = pc;
+
+    pc.onicecandidate = e => {
+      if (e.candidate && socket) socket.emit("rtc:candidate", { to: peerId, candidate: e.candidate });
+    };
+
+    pc.ontrack = e => {
+      remoteStreamRef.current = e.streams[0];
+      setCall(c => ({ ...c, status: "Ses bağlantısı geldi" }));
+    };
+
+    const stream = localStreamRef.current || await getAudioStream();
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+    return pc;
+  }
+
+  async function startDmCall() {
+    if (!dmUser || !socket) return;
+    try {
+      await getAudioStream();
+      setCall(c => ({
+        ...c,
+        active: true,
+        peerId: dmUser.id,
+        peerName: dmUser.username,
+        status: `${dmUser.username} aranıyor...`,
+        incoming: null
+      }));
+      socket.emit("dm:call:invite", { to: dmUser.id });
+    } catch {
+      setError("Mikrofon izni verilmedi.");
+    }
+  }
+
+  async function acceptIncomingCall() {
+    if (!call.incoming || !socket) return;
+    try {
+      await getAudioStream();
+      setCall(c => ({
+        ...c,
+        active: true,
+        peerId: c.incoming.from,
+        peerName: c.incoming.username,
+        status: "Arama kabul edildi",
+        incoming: null
+      }));
+      socket.emit("dm:call:accept", { to: call.incoming.from });
+      await ensurePeer(call.incoming.from);
+    } catch {
+      setError("Mikrofon izni verilmedi.");
+    }
+  }
+
+  function rejectIncomingCall() {
+    if (call.incoming && socket) socket.emit("dm:call:reject", { to: call.incoming.from });
+    setCall(c => ({ ...c, incoming: null, status: "Kapalı" }));
+  }
+
+  async function createOffer(peerId) {
+    const pc = await ensurePeer(peerId);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.emit("rtc:offer", { to: peerId, offer });
+    setCall(c => ({ ...c, active: true, peerId, status: "Bağlanıyor..." }));
+  }
+
+  function toggleMute() {
+    const stream = localStreamRef.current;
+    if (!stream) return;
+    const nextMuted = !call.muted;
+    stream.getAudioTracks().forEach(t => t.enabled = !nextMuted);
+    setCall(c => ({ ...c, muted: nextMuted }));
+  }
+
+  async function toggleCamera() {
+    try {
+      if (call.camera) {
+        localStreamRef.current?.getVideoTracks().forEach(t => t.stop());
+        const audioTracks = localStreamRef.current?.getAudioTracks() || [];
+        localStreamRef.current = new MediaStream(audioTracks);
+        setCall(c => ({ ...c, camera: false }));
+        return;
+      }
+
+      const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      const videoTrack = videoStream.getVideoTracks()[0];
+      const base = localStreamRef.current || await getAudioStream();
+      base.addTrack(videoTrack);
+
+      if (pcRef.current) {
+        const sender = pcRef.current.getSenders().find(s => s.track?.kind === "video");
+        if (sender) sender.replaceTrack(videoTrack);
+        else pcRef.current.addTrack(videoTrack, base);
+      }
+
+      localStreamRef.current = base;
+      setCall(c => ({ ...c, camera: true }));
+    } catch {
+      setError("Kamera izni verilmedi veya kamera bulunamadı.");
+    }
+  }
+
+  async function toggleScreen() {
+    try {
+      if (call.screen) {
+        screenStreamRef.current?.getTracks().forEach(t => t.stop());
+        screenStreamRef.current = null;
+        setCall(c => ({ ...c, screen: false }));
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      screenStreamRef.current = stream;
+      setCall(c => ({ ...c, screen: true }));
+
+      const screenTrack = stream.getVideoTracks()[0];
+      if (pcRef.current && screenTrack) {
+        const sender = pcRef.current.getSenders().find(s => s.track?.kind === "video");
+        if (sender) sender.replaceTrack(screenTrack);
+        else pcRef.current.addTrack(screenTrack, stream);
+      }
+    } catch {
+      setError("Ekran paylaşımı iptal edildi.");
+    }
+  }
+
+  function endCall(sendEvent = true) {
+    if (sendEvent && call.peerId && socket) socket.emit("dm:call:end", { to: call.peerId });
+
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
+    screenStreamRef.current?.getTracks().forEach(t => t.stop());
+    pcRef.current?.close();
+
+    localStreamRef.current = null;
+    screenStreamRef.current = null;
+    remoteStreamRef.current = null;
+    pcRef.current = null;
+
+    setCall({
+      active: false,
+      incoming: null,
+      peerId: null,
+      peerName: "",
+      status: "Kapalı",
+      muted: false,
+      camera: false,
+      screen: false,
+      localVolume: 100,
+      remoteVolume: 100
+    });
+  }
+
+  if (!user) {
+    return (
+      <div className="authPage">
+        <form className="authCard" onSubmit={submitAuth}>
+          <div className="brand">N</div>
+          <h1>{authMode === "login" ? "Giriş Yap" : "Kaydol"}</h1>
+          <p>Kayıt gerçek veritabanına gider. Şifre bcrypt ile hashlenir.</p>
+          <input value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} placeholder="Kullanıcı adı" />
+          <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} placeholder="Şifre" />
+          {error && <div className="error">{error}</div>}
+          <button>{authMode === "login" ? "Giriş Yap" : "Hesap Oluştur"}</button>
+          <span onClick={() => setAuthMode(authMode === "login" ? "register" : "login")}>{authMode === "login" ? "Hesabın yok mu? Kaydol" : "Hesabın var mı? Giriş yap"}</span>
+          <small>Test: admin/123456 ve nova/123456</small>
+        </form>
+
+        {modal === "invitePreview" && invitePreview && (
+          <InvitePreview invite={invitePreview} user={user} onJoin={() => setError("Katılmak için önce giriş yap veya kaydol.")} onClose={() => setModal(null)} />
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="app">
+      <aside className="serverRail">
+        <button className={`serverIcon ${rightTab === "friends" ? "active" : ""}`} onClick={() => setRightTab("friends")}>🏠</button>
+        {servers.map(s => (
+          <button key={s.id} className={`serverIcon ${s.id === activeServerId ? "active" : ""}`} style={{ background: s.color }} onClick={() => {
+            setActiveServerId(s.id);
+            const first = channels.find(c => c.server_id === s.id);
+            setActiveChannelId(first?.id);
+            setRightTab("members");
+          }}>{s.icon}</button>
+        ))}
+        <button className="serverIcon add" onClick={() => setModal("server")}>+</button>
+        <div className="railBottom"><button onClick={() => setModal("settings")}>⚙</button><button onClick={logout}>⏻</button></div>
+      </aside>
+
+      <aside className="channelPanel">
+        <div className="serverHeader" style={{ background: `linear-gradient(135deg, ${activeServer?.color || "#5865f2"}, #111827)` }}>
+          <h1>{rightTab === "friends" || rightTab === "dm" ? "Ana Sayfa" : activeServer?.name}</h1>
+          <p>{rightTab === "friends" || rightTab === "dm" ? "Arkadaşlar, istekler, DM ve sesli arama." : activeServer?.description}</p>
+        </div>
+
+        <button className="serverBoost" onClick={() => setRightTab("friends")}>👥 Arkadaşlar</button>
+        <button className="serverBoost" onClick={createInvite}>🔗 Davet Linki Oluştur</button>
+        <button className="serverBoost" onClick={() => { setRightTab("audit"); loadAudit(); }}>🛡 Audit / Sunucu</button>
+
+        <div className="channelScroll">
+          {Object.entries(groupedChannels).map(([cat, list]) => (
+            <section key={cat}>
+              <div className="groupTitle"><span>{cat}</span><button onClick={() => setModal("channel")}>+</button></div>
+              {list.map(c => <button key={c.id} className={`channelBtn ${c.id === activeChannelId ? "active" : ""}`} onClick={() => {
+                setActiveChannelId(c.id);
+                setRightTab(["voice", "stage"].includes(c.type) ? "voice" : "members");
+              }}>{channelIcon(c.type)} {c.name}</button>)}
+            </section>
+          ))}
+        </div>
+
+        <div className="userDock"><div className="avatar">{user.avatar}</div><div><b>{user.username}</b><p>{user.status}</p></div></div>
+      </aside>
+
+      <main className="content">
+        <header className="topbar">
+          <div>
+            <h2>{rightTab === "dm" ? `💬 ${dmUser?.username}` : rightTab === "friends" ? "👥 Arkadaşlar" : `${channelIcon(activeChannel?.type)} ${activeChannel?.name}`}</h2>
+            <p>{rightTab === "friends" ? "Kullanıcı ara, arkadaş ekle, DM aç." : rightTab === "dm" ? "Özel mesaj ve sesli arama." : activeChannel?.topic}</p>
+          </div>
+          <div className="topActions">
+            <button onClick={() => setRightTab("friends")}>👥</button>
+            <button onClick={createInvite}>🔗 Davet</button>
+            <button onClick={() => setRightTab("members")}>Sunucu</button>
+          </div>
+        </header>
+
+        {rightTab === "friends" ? (
+          <FriendsPage
+            friends={friends}
+            userSearch={userSearch}
+            setUserSearch={setUserSearch}
+            searchUsers={searchUsers}
+            searchResults={searchResults}
+            sendFriendRequest={sendFriendRequest}
+            acceptFriend={acceptFriend}
+            rejectFriend={rejectFriend}
+            removeFriend={removeFriend}
+            openDm={openDm}
+          />
+        ) : rightTab === "dm" ? (
+          <DMPage
+            dmUser={dmUser}
+            messages={dmMessages}
+            draft={dmDraft}
+            setDraft={setDmDraft}
+            send={sendDm}
+            call={call}
+            localVideoRef={localVideoRef}
+            remoteVideoRef={remoteVideoRef}
+            screenVideoRef={screenVideoRef}
+            startDmCall={startDmCall}
+            acceptIncomingCall={acceptIncomingCall}
+            rejectIncomingCall={rejectIncomingCall}
+            toggleMute={toggleMute}
+            toggleCamera={toggleCamera}
+            toggleScreen={toggleScreen}
+            endCall={endCall}
+            setCall={setCall}
+          />
+        ) : ["voice", "stage"].includes(activeChannel?.type) ? (
+          <section className="voiceRoom">
+            <h1>{channelIcon(activeChannel.type)} {activeChannel.name}</h1>
+            <p>Sunucu ses odası paneli. DM ses araması için arkadaş DM ekranını kullan.</p>
+            <button className="primary" onClick={() => setError("Sunucu odaları için grup WebRTC/SFU gerekir. Şu an DM P2P araması eklendi.")}>Sunucu Ses Paneli</button>
+          </section>
+        ) : (
+          <Chat messages={messages} user={user} activeChannel={activeChannel} draft={draft} setDraft={setDraft} sendMessage={sendMessage} react={react} pin={pin} del={del} edit={edit} />
+        )}
+      </main>
+
+      <aside className="rightPanel">
+        <div className="tabs"><button onClick={() => setRightTab("friends")}>Arkadaş</button><button onClick={() => setRightTab("members")}>Üye</button><button onClick={() => { setRightTab("audit"); loadAudit(); }}>Audit</button></div>
+        {rightTab === "members" && serverMembers.map(m => <div className="memberCard" key={m.id}><div className="avatar">{m.avatar}</div><div><b>{m.username}</b><p>{m.role} • {m.status}</p><small>{m.bio}</small></div></div>)}
+        {rightTab === "audit" && audit.map(a => <div className="activity" key={a.id}><b>{time(a.created_at)}</b><p>{a.action}</p></div>)}
+        {(rightTab === "friends" || rightTab === "dm") && <FriendSidebar friends={friends} openDm={openDm} />}
+      </aside>
+
+      {call.incoming && (
+        <div className="incomingCall">
+          <div className="avatar">{call.incoming.avatar}</div>
+          <div><b>{call.incoming.username} arıyor</b><p>DM sesli arama</p></div>
+          <button onClick={acceptIncomingCall}>Kabul</button>
+          <button className="danger" onClick={rejectIncomingCall}>Reddet</button>
+        </div>
+      )}
+
+      <div className="toast">{toast}</div>
+      {error && <div className="error floating" onClick={() => setError("")}>{error}</div>}
+
+      {modal === "server" && <ServerModal onClose={() => setModal(null)} onCreate={createServer} />}
+      {modal === "channel" && <ChannelModal onClose={() => setModal(null)} onCreate={createChannel} />}
+      {modal === "settings" && <SettingsModal user={user} setUser={setUser} onClose={() => setModal(null)} />}
+      {modal?.type === "inviteCreated" && <InviteCreated modal={modal} onClose={() => setModal(null)} />}
+      {modal === "invitePreview" && invitePreview && <InvitePreview invite={invitePreview} user={user} onJoin={() => joinInvite(invitePreview.code)} onClose={() => setModal(null)} />}
+    </div>
+  );
+}
+
+function FriendsPage({ friends, userSearch, setUserSearch, searchUsers, searchResults, sendFriendRequest, acceptFriend, rejectFriend, removeFriend, openDm }) {
+  return (
+    <section className="friendsPage">
+      <div className="friendSearch">
+        <input value={userSearch} onChange={e => setUserSearch(e.target.value)} onKeyDown={e => e.key === "Enter" && searchUsers()} placeholder="Kullanıcı ara: admin, nova..." />
+        <button onClick={searchUsers}>Ara</button>
+      </div>
+
+      <div className="friendGrid">
+        <Panel title="Arama Sonuçları">
+          {searchResults.map(u => <FriendRow key={u.id} user={u}><button onClick={() => sendFriendRequest(u.username)}>Ekle</button></FriendRow>)}
+          {searchResults.length === 0 && <p className="muted">En az 2 harf yaz ve ara.</p>}
+        </Panel>
+
+        <Panel title="Gelen İstekler">
+          {friends.incoming.map(f => <FriendRow key={f.id} user={f.other}><button onClick={() => acceptFriend(f.id)}>Kabul</button><button onClick={() => rejectFriend(f.id)}>Red</button></FriendRow>)}
+          {friends.incoming.length === 0 && <p className="muted">Gelen istek yok.</p>}
+        </Panel>
+
+        <Panel title="Arkadaşlar">
+          {friends.friends.map(f => <FriendRow key={f.id} user={f.other}><button onClick={() => openDm(f.other)}>DM</button><button onClick={() => removeFriend(f.other.id)}>Sil</button></FriendRow>)}
+          {friends.friends.length === 0 && <p className="muted">Henüz arkadaş yok.</p>}
+        </Panel>
+
+        <Panel title="Gönderilen İstekler">
+          {friends.outgoing.map(f => <FriendRow key={f.id} user={f.other}><button onClick={() => rejectFriend(f.id)}>İptal</button></FriendRow>)}
+          {friends.outgoing.length === 0 && <p className="muted">Bekleyen istek yok.</p>}
+        </Panel>
+      </div>
+    </section>
+  );
+}
+
+function Panel({ title, children }) {
+  return <div className="panelCard"><h3>{title}</h3>{children}</div>;
+}
+
+function FriendRow({ user, children }) {
+  return <div className="friendRow"><div className="avatar">{user.avatar}</div><div><b>{user.username}</b><p>{user.bio || user.status}</p></div>{children}</div>;
+}
+
+function FriendSidebar({ friends, openDm }) {
+  return <>
+    <h3>DM Listesi</h3>
+    {friends.friends.map(f => <div className="memberCard" key={f.id}><div className="avatar">{f.other.avatar}</div><div><b>{f.other.username}</b><p>{f.other.status}</p><button onClick={() => openDm(f.other)}>Mesaj</button></div></div>)}
+  </>;
+}
+
+function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, remoteVideoRef, screenVideoRef, startDmCall, acceptIncomingCall, rejectIncomingCall, toggleMute, toggleCamera, toggleScreen, endCall, setCall }) {
+  if (!dmUser) return <section className="friendsPage"><div className="panelCard"><h3>DM seçilmedi</h3><p className="muted">Arkadaşlar listesinden birini seç.</p></div></section>;
+
+  return (
+    <section className="dmLayout">
+      <div className="dmChat">
+        <div className="messages">
+          <div className="channelHero"><div className="heroIcon">💬</div><div><h2>{dmUser.username}</h2><p>Özel mesaj ve sesli arama.</p></div></div>
+          {messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span></div><p>{m.content}</p></div></article>)}
+        </div>
+        <div className="composer"><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={`${dmUser.username} kullanıcısına mesaj yaz`} /><button onClick={send}>➤</button></div>
+      </div>
+
+      <div className="callPanel">
+        <div className="callPanelHeader">
+          <div><h3>DM Arama Paneli</h3><p>{call.status}</p></div>
+          <button className="danger" onClick={() => endCall()}>Kapat</button>
+        </div>
+
+        <div className="videoStack">
+          <div className="videoTile"><video ref={remoteVideoRef} autoPlay playsInline /><span>Karşı taraf</span></div>
+          <div className="videoTile small"><video ref={localVideoRef} autoPlay muted playsInline /><span>Sen</span></div>
+          {call.screen && <div className="videoTile"><video ref={screenVideoRef} autoPlay muted playsInline /><span>Ekran paylaşımı</span></div>}
+        </div>
+
+        <div className="callControls">
+          {!call.active ? <button onClick={startDmCall}>📞 Sesli Ara</button> : <button onClick={toggleMute}>{call.muted ? "Mikrofon Aç" : "Mikrofon Kapat"}</button>}
+          <button onClick={toggleCamera}>{call.camera ? "Kamerayı Kapat" : "Kamera Aç"}</button>
+          <button onClick={toggleScreen}>{call.screen ? "Ekranı Kapat" : "Ekran Paylaş"}</button>
+          <button className="danger" onClick={() => endCall()}>Aramayı Bitir</button>
+        </div>
+
+        <div className="volumeBox">
+          <label>Karşı taraf sesi: {call.remoteVolume}%</label>
+          <input type="range" min="0" max="100" value={call.remoteVolume} onChange={e => setCall(c => ({ ...c, remoteVolume: Number(e.target.value) }))} />
+          <label>Mikrofon seviyesi: {call.localVolume}%</label>
+          <input type="range" min="0" max="100" value={call.localVolume} onChange={e => setCall(c => ({ ...c, localVolume: Number(e.target.value) }))} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Chat({ messages, user, activeChannel, draft, setDraft, sendMessage, react, pin, del, edit }) {
+  return <section className="chat"><div className="messages"><div className="channelHero"><div className="heroIcon">{channelIcon(activeChannel?.type)}</div><div><h2>{activeChannel?.name}</h2><p>{activeChannel?.topic}</p></div></div>{messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span>{m.pinned && <span>📌</span>}</div><p>{m.content}</p><div className="reactions">{Object.entries(m.reactions || {}).map(([e,n]) => <button key={e} onClick={() => react(m,e)}>{e} {n}</button>)}</div><div className="messageActions"><button onClick={() => react(m,"👍")}>👍</button><button onClick={() => react(m,"🔥")}>🔥</button><button onClick={() => pin(m)}>Pin</button>{m.user_id===user.id && <button onClick={() => edit(m)}>Düzenle</button>}<button onClick={() => del(m)}>Sil</button></div></div></article>)}</div><div className="composer"><button>+</button><input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage()} placeholder="Mesaj yaz" /><button onClick={sendMessage}>➤</button></div></section>;
+}
+
+function ServerModal({ onClose, onCreate }) {
+  const [f, setF] = useState({ name: "", icon: "S", color: "#5865f2", description: "" });
+  return <Modal title="Sunucu Oluştur" onClose={onClose}><Field label="Ad" value={f.name} onChange={v=>setF({...f,name:v})}/><Field label="İkon" value={f.icon} onChange={v=>setF({...f,icon:v})}/><Field label="Renk" type="color" value={f.color} onChange={v=>setF({...f,color:v})}/><Field label="Açıklama" value={f.description} onChange={v=>setF({...f,description:v})}/><button className="primary" onClick={()=>onCreate(f)}>Oluştur</button></Modal>;
+}
+
+function ChannelModal({ onClose, onCreate }) {
+  const [f, setF] = useState({ name: "", type: "text", category: "YAZI", topic: "" });
+  return <Modal title="Kanal Oluştur" onClose={onClose}><Field label="Ad" value={f.name} onChange={v=>setF({...f,name:v})}/><label className="field"><span>Tip</span><select value={f.type} onChange={e=>setF({...f,type:e.target.value})}><option value="text">Yazı</option><option value="announcement">Duyuru</option><option value="voice">Ses</option><option value="stage">Stage</option></select></label><Field label="Kategori" value={f.category} onChange={v=>setF({...f,category:v})}/><Field label="Konu" value={f.topic} onChange={v=>setF({...f,topic:v})}/><button className="primary" onClick={()=>onCreate(f)}>Oluştur</button></Modal>;
+}
+
+function SettingsModal({ user, setUser, onClose }) {
+  const [bio, setBio] = useState(user.bio || "");
+  const [status, setStatus] = useState(user.status || "online");
+  async function save() { const data = await api("/api/me", { method: "PATCH", body: JSON.stringify({ bio, status }) }); setUser(data.user); onClose(); }
+  return <Modal title="Ayarlar" onClose={onClose}><Field label="Bio" value={bio} onChange={setBio}/><label className="field"><span>Durum</span><select value={status} onChange={e=>setStatus(e.target.value)}><option value="online">Çevrimiçi</option><option value="idle">Boşta</option><option value="dnd">Rahatsız etmeyin</option><option value="offline">Görünmez</option></select></label><button className="primary" onClick={save}>Kaydet</button></Modal>;
+}
+
+function InviteCreated({ modal, onClose }) {
+  return <Modal title="Davet Linki" onClose={onClose}><p className="muted">Bu linki birine at. Açınca sunucu kartı görür ve katılabilir.</p><div className="inviteBox">{modal.url}</div><button className="primary" onClick={() => navigator.clipboard.writeText(modal.url)}>Kopyala</button></Modal>;
+}
+
+function InvitePreview({ invite, onJoin, onClose }) {
+  return <Modal title="Sunucu Daveti" onClose={onClose}><div className="invitePreview"><div className="serverIcon big" style={{background: invite.server_color}}>{invite.server_icon}</div><h2>{invite.server_name}</h2><p>{invite.server_description}</p><b>{invite.member_count} üye</b></div><button className="primary" onClick={onJoin}>Sunucuya Katıl</button></Modal>;
+}
+
+function Field({ label, value, onChange, type="text" }) {
+  return <label className="field"><span>{label}</span><input type={type} value={value} onChange={e=>onChange(e.target.value)} /></label>;
+}
+
+function Modal({ title, children, onClose }) {
+  return <div className="modalBg"><div className="modal"><button className="close" onClick={onClose}>×</button><h2>{title}</h2>{children}</div></div>;
+}
