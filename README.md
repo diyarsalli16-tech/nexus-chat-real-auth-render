@@ -1,13 +1,13 @@
-# Nexus Chat V4 DM Fix
+# Nexus Chat V4.1 DM Real Fix
 
-Bu sürüm DM sorunlarını düzeltir:
+Bu sürüm önceki V4 paketindeki asıl hatayı düzeltir.
 
-- DM mesajı socket gecikse bile anında ekrana düşer.
-- DM mesajı hata verirse input geri gelir ve hata gösterilir.
-- Mikrofon ses seviyesi slider'ı gerçekten WebAudio gain ile çalışır.
-- Arama panelinde durum/talimat gösterir.
-- Arama kapanınca mikrofon, kamera, ekran ve peer connection temizlenir.
+Düzeltmeler:
+- DM mesajı API cevabıyla anında ekrana düşer.
+- Mesaj gönderimi hata verirse yazı input'a geri gelir ve hata gösterilir.
+- Mikrofon slider'ı WebAudio gain ile gerçekten mikrofon sesine etki eder.
+- Arama kapatılınca mikrofon, raw mic stream, ekran paylaşımı, peer connection ve audio context temizlenir.
+- Arama panelinde durum/talimat görünür.
 
 Not:
-WebRTC ses için iki kullanıcı aynı anda online olmalı ve aramayı karşı taraf kabul etmelidir.
-Farklı ağlarda hâlâ ses gitmezse TURN sunucusu gerekir.
+WebRTC iki farklı ağda hâlâ ses vermiyorsa TURN sunucusu gerekir.

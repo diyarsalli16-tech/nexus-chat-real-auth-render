@@ -73,6 +73,9 @@ export default function App({ ioFactory }) {
   const screenVideoRef = useRef(null);
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
+  const rawMicStreamRef = useRef(null);
+  const audioContextRef = useRef(null);
+  const micGainRef = useRef(null);
   const screenStreamRef = useRef(null);
   const remoteStreamRef = useRef(null);
 
@@ -238,6 +241,10 @@ export default function App({ ioFactory }) {
     if (remoteVideoRef.current) remoteVideoRef.current.volume = call.remoteVolume / 100;
   }, [call.remoteVolume]);
 
+  useEffect(() => {
+    if (micGainRef.current) micGainRef.current.gain.value = call.localVolume / 100;
+  }, [call.localVolume]);
+
   async function submitAuth(e) {
     e.preventDefault();
     setError("");
@@ -342,9 +349,22 @@ export default function App({ ioFactory }) {
 
   async function sendDm() {
     if (!dmUser || !dmDraft.trim()) return;
+
     const content = dmDraft.trim();
     setDmDraft("");
-    await api(`/api/dms/${dmUser.id}/messages`, { method: "POST", body: JSON.stringify({ content }) });
+
+    try {
+      const data = await api(`/api/dms/${dmUser.id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ content })
+      });
+
+      // Socket geç gelse bile gönderen kişi mesajı anında görsün.
+      setDmMessages(old => old.some(m => m.id === data.message.id) ? old : [...old, data.message]);
+    } catch (err) {
+      setError(err.message);
+      setDmDraft(content);
+    }
   }
 
   async function createServer(form) {
@@ -385,7 +405,9 @@ export default function App({ ioFactory }) {
   }
 
   async function getAudioStream() {
-    const stream = await navigator.mediaDevices.getUserMedia({
+    if (localStreamRef.current?.getAudioTracks().length) return localStreamRef.current;
+
+    const raw = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
@@ -394,9 +416,30 @@ export default function App({ ioFactory }) {
       video: false
     });
 
-    localStreamRef.current = stream;
-    setCall(c => ({ ...c }));
-    return stream;
+    rawMicStreamRef.current = raw;
+
+    // Mikrofon ses seviyesi slider'ı gerçekten etki etsin diye WebAudio gain kullanıyoruz.
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+
+    if (AudioCtx) {
+      const ctx = new AudioCtx();
+      const source = ctx.createMediaStreamSource(raw);
+      const gain = ctx.createGain();
+      const dest = ctx.createMediaStreamDestination();
+
+      gain.gain.value = call.localVolume / 100;
+      source.connect(gain);
+      gain.connect(dest);
+
+      audioContextRef.current = ctx;
+      micGainRef.current = gain;
+      localStreamRef.current = dest.stream;
+    } else {
+      localStreamRef.current = raw;
+    }
+
+    setCall(c => ({ ...c, status: "Mikrofon hazır" }));
+    return localStreamRef.current;
   }
 
   async function ensurePeer(peerId) {
@@ -534,13 +577,18 @@ export default function App({ ioFactory }) {
     if (sendEvent && call.peerId && socket) socket.emit("dm:call:end", { to: call.peerId });
 
     localStreamRef.current?.getTracks().forEach(t => t.stop());
+    rawMicStreamRef.current?.getTracks().forEach(t => t.stop());
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
     pcRef.current?.close();
+    audioContextRef.current?.close?.();
 
     localStreamRef.current = null;
+    rawMicStreamRef.current = null;
     screenStreamRef.current = null;
     remoteStreamRef.current = null;
     pcRef.current = null;
+    audioContextRef.current = null;
+    micGainRef.current = null;
 
     setCall({
       active: false,
@@ -767,7 +815,7 @@ function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, 
 
       <div className="callPanel">
         <div className="callPanelHeader">
-          <div><h3>DM Arama Paneli</h3><p>{call.status}</p></div>
+          <div><h3>DM Arama Paneli</h3><p>{call.status}</p><small>İki hesap da açık olmalı. Karşı taraf gelen aramayı kabul etmeli.</small></div>
           <button className="danger" onClick={() => endCall()}>Kapat</button>
         </div>
 
