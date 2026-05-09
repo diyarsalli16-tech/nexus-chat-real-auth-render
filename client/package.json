@@ -1,6 +1,6 @@
 {
-  "name": "nexus-chat-v3-client",
-  "version": "3.0.0",
+  "name": "orbit-client",
+  "version": "18.0.0",
   "private": true,
   "type": "module",
   "scripts": {

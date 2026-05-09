@@ -561,3 +561,36 @@ body.pwa-standalone .globalCallDock{bottom:28px}
 .mediaCanFullscreen:hover::after{
   opacity:1;
 }
+
+
+/* V18 Orbit Client + black camera/screen fix */
+.videoTile,
+.dockVideo,
+.groupMediaTile{
+  background:#030712!important;
+}
+.videoTile video,
+.dockVideo video,
+.groupMediaTile video{
+  background:#030712;
+}
+.mediaCanFullscreen video:not([srcObject]){
+  background:#030712;
+}
+.mediaCanFullscreen .fullscreenBtn{
+  z-index:8;
+}
+.mediaCanFullscreen::before{
+  content:"";
+  position:absolute;
+  inset:0;
+  pointer-events:none;
+  background:radial-gradient(circle at center, transparent 40%, rgba(0,0,0,.12));
+  z-index:1;
+}
+.mediaCanFullscreen video,
+.mediaCanFullscreen span,
+.mediaCanFullscreen button{
+  position:relative;
+  z-index:2;
+}

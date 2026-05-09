@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const API = "";
-const APP_VERSION = "V17 No E2EE + Fullscreen Media";
+const APP_VERSION = "Orbit Client V18 Media Fix";
 const defaultRtcConfig = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -94,6 +94,7 @@ export default function App({ ioFactory }) {
   const socketRef = useRef(null);
   const groupVoiceRef = useRef(null);
   const groupVoicePcsRef = useRef(new Map());
+  const groupRemoteCombinedStreamsRef = useRef(new Map());
   const groupVoiceLocalStreamRef = useRef(null);
   const groupCameraStreamRef = useRef(null);
   const groupScreenStreamRef = useRef(null);
@@ -153,6 +154,27 @@ export default function App({ ioFactory }) {
     setToast(msg);
     window.clearTimeout(window.__toast);
     window.__toast = window.setTimeout(() => setToast("Hazır"), 2400);
+  }
+
+  function bindVideoNode(node, stream, muted = false) {
+    if (!node) return;
+
+    node.autoplay = true;
+    node.playsInline = true;
+    node.muted = muted;
+
+    if (node.srcObject !== stream) node.srcObject = stream || null;
+
+    const tryPlay = () => node.play?.().catch(() => {});
+    node.onloadedmetadata = tryPlay;
+
+    try {
+      stream?.getTracks?.().forEach(track => {
+        track.onunmute = tryPlay;
+      });
+    } catch {}
+
+    tryPlay();
   }
 
   async function openFullscreen(target) {
@@ -313,14 +335,14 @@ export default function App({ ioFactory }) {
     if (mentioned) {
       setMentionCount(c => c + 1);
       playMentionSound();
-      notifyDesktop("Nexus Chat • Etiketlendin", `${fromName}: ${content}`, `mention-${Date.now()}`);
+      notifyDesktop("Orbit Client • Etiketlendin", `${fromName}: ${content}`, `mention-${Date.now()}`);
       show(`@${user?.username} etiketi geldi`);
       return;
     }
 
     if (appNotFocused) {
       playMessageSound();
-      notifyDesktop("Nexus Chat", `${fromName}: ${content}`, `msg-${context}`);
+      notifyDesktop("Orbit Client", `${fromName}: ${content}`, `msg-${context}`);
     }
   }
 
@@ -338,7 +360,7 @@ export default function App({ ioFactory }) {
       const result = await Notification.requestPermission();
       setNotificationPermission(result);
       if (result === "granted") {
-        notifyDesktop("Nexus Chat", "Bildirimler açıldı. Etiket gelince uyarı alacaksın.", "nexus-ready");
+        notifyDesktop("Orbit Client", "Bildirimler açıldı. Etiket gelince uyarı alacaksın.", "nexus-ready");
         show("Bildirimler açıldı");
       } else {
         setError("Bildirim izni verilmedi.");
@@ -432,7 +454,7 @@ export default function App({ ioFactory }) {
   }, []);
 
   useEffect(() => {
-    document.title = mentionCount > 0 ? `(${mentionCount}) Nexus Chat` : "Nexus Chat";
+    document.title = mentionCount > 0 ? `(${mentionCount}) Orbit Client` : "Orbit Client";
   }, [mentionCount]);
 
   useEffect(() => {
@@ -580,7 +602,7 @@ export default function App({ ioFactory }) {
     s.on("dm:call:incoming", payload => {
       startRingtone();
       playMentionSound();
-      notifyDesktop("Nexus Chat • Gelen arama", `${payload.username} seni arıyor`, "incoming-call");
+      notifyDesktop("Orbit Client • Gelen arama", `${payload.username} seni arıyor`, "incoming-call");
       setCall(c => ({ ...c, incoming: payload, status: `${payload.username} arıyor` }));
       setRightTab("dm");
     });
@@ -591,7 +613,7 @@ export default function App({ ioFactory }) {
         setCall(c => ({ ...c, status: "Arama kabul edildi" }));
         await createOffer(from);
       } catch (err) {
-        console.error("Nexus call offer error", err);
+        console.error("Orbit call offer error", err);
         setError(err.message || "Arama offer gönderemedi.");
         setCall(c => ({ ...c, status: "Offer hatası" }));
       }
@@ -618,7 +640,7 @@ export default function App({ ioFactory }) {
         s.emit("rtc:answer", { to: from, answer });
         setCall(c => ({ ...c, active: true, peerId: from, status: "Cevap gönderildi" }));
       } catch (err) {
-        console.error("Nexus rtc offer error", err);
+        console.error("Orbit rtc offer error", err);
         setError(err.message || "Gelen arama cevabı oluşturulamadı.");
       }
     });
@@ -630,7 +652,7 @@ export default function App({ ioFactory }) {
           setCall(c => ({ ...c, status: "Answer alındı" }));
         }
       } catch (err) {
-        console.error("Nexus rtc answer error", err);
+        console.error("Orbit rtc answer error", err);
         setError(err.message || "Answer işlenemedi.");
       }
     });
@@ -661,10 +683,10 @@ export default function App({ ioFactory }) {
   }, [socket, activeGroup]);
 
   useEffect(() => {
-    if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
-    if (compactLocalVideoRef.current) compactLocalVideoRef.current.srcObject = localStreamRef.current;
+    bindVideoNode(localVideoRef.current, localStreamRef.current, true);
+    bindVideoNode(compactLocalVideoRef.current, localStreamRef.current, true);
     bindRemoteMedia();
-    if (screenVideoRef.current) screenVideoRef.current.srcObject = screenStreamRef.current;
+    bindVideoNode(screenVideoRef.current, screenStreamRef.current, true);
   }, [call]);
 
   useEffect(() => {
@@ -841,6 +863,13 @@ export default function App({ ioFactory }) {
   async function setGroupOutgoingVideoTrack(track) {
     const base = await getGroupVoiceStream();
 
+    // Siyah ekran düzeltmesi: grup local stream içinde eski video track kalmasın.
+    base.getVideoTracks().forEach(oldTrack => {
+      if (!track || oldTrack.id !== track.id) {
+        try { base.removeTrack(oldTrack); } catch {}
+      }
+    });
+
     if (track && !base.getTracks().some(t => t.id === track.id)) {
       base.addTrack(track);
     }
@@ -854,11 +883,50 @@ export default function App({ ioFactory }) {
     await renegotiateGroupPeers();
   }
 
+  function addGroupRemoteTrack(socketId, track) {
+    if (!socketId || !track) return;
+
+    if (!groupRemoteCombinedStreamsRef.current.has(socketId)) {
+      groupRemoteCombinedStreamsRef.current.set(socketId, new MediaStream());
+    }
+
+    const combined = groupRemoteCombinedStreamsRef.current.get(socketId);
+
+    if (track.kind === "video") {
+      combined.getVideoTracks().forEach(oldTrack => {
+        if (oldTrack.id !== track.id) {
+          try { combined.removeTrack(oldTrack); } catch {}
+        }
+      });
+    }
+
+    if (track.kind === "audio") {
+      combined.getAudioTracks().forEach(oldTrack => {
+        if (oldTrack.id !== track.id) {
+          try { combined.removeTrack(oldTrack); } catch {}
+        }
+      });
+    }
+
+    if (!combined.getTracks().some(t => t.id === track.id)) {
+      combined.addTrack(track);
+      track.onended = () => {
+        try { combined.removeTrack(track); } catch {}
+        setGroupRemoteStreams(old => ({ ...old, [socketId]: combined }));
+      };
+    }
+
+    setGroupRemoteStreams(old => ({ ...old, [socketId]: combined }));
+  }
+
   async function createGroupPeer(socketId, userInfo, initiator, groupId) {
     if (groupVoicePcsRef.current.has(socketId)) return groupVoicePcsRef.current.get(socketId);
 
     const pc = new RTCPeerConnection(rtcConfigRef.current);
     groupVoicePcsRef.current.set(socketId, pc);
+
+    // Grup kamera/ekran sonradan açılınca video m-line hazır olsun.
+    try { pc.addTransceiver("video", { direction: "sendrecv" }); } catch {}
 
     const stream = await getGroupVoiceStream();
     stream.getTracks().forEach(track => pc.addTrack(track, stream));
@@ -876,11 +944,11 @@ export default function App({ ioFactory }) {
     };
 
     pc.ontrack = e => {
-      setGroupRemoteStreams(old => ({ ...old, [socketId]: e.streams[0] }));
+      addGroupRemoteTrack(socketId, e.track);
       setGroupVoice(c => ({
         ...c,
         peers: c.peers.some(p => p.socketId === socketId) ? c.peers : [...c.peers, { socketId, ...userInfo, status: "medya geldi" }],
-        status: "Grup medya bağlantısı geldi"
+        status: e.track.kind === "video" ? "Grup görüntüsü geldi" : "Grup sesi geldi"
       }));
     };
 
@@ -902,6 +970,7 @@ export default function App({ ioFactory }) {
     const pc = groupVoicePcsRef.current.get(socketId);
     pc?.close?.();
     groupVoicePcsRef.current.delete(socketId);
+    groupRemoteCombinedStreamsRef.current.delete(socketId);
     setGroupRemoteStreams(old => {
       const next = { ...old };
       delete next[socketId];
@@ -934,6 +1003,7 @@ export default function App({ ioFactory }) {
     groupCameraStreamRef.current = null;
     groupScreenStreamRef.current = null;
 
+    groupRemoteCombinedStreamsRef.current.clear();
     setGroupRemoteStreams({});
     setGroupLocalVideoOn(false);
     setGroupScreenOn(false);
@@ -1112,24 +1182,18 @@ export default function App({ ioFactory }) {
   function bindRemoteMedia() {
     const stream = remoteStreamRef.current;
 
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = stream;
-      remoteVideoRef.current.play?.().catch(() => {});
-    }
-
-    if (compactRemoteVideoRef.current) {
-      compactRemoteVideoRef.current.srcObject = stream;
-      compactRemoteVideoRef.current.play?.().catch(() => {});
-    }
+    bindVideoNode(remoteVideoRef.current, stream, false);
+    bindVideoNode(compactRemoteVideoRef.current, stream, false);
 
     if (persistentRemoteAudioRef.current) {
-      persistentRemoteAudioRef.current.srcObject = stream;
+      persistentRemoteAudioRef.current.srcObject = stream || null;
       persistentRemoteAudioRef.current.volume = call.remoteVolume / 100;
       persistentRemoteAudioRef.current.play?.().catch(() => {});
     }
   }
 
   function addRemoteTrack(track) {
+    if (!track) return;
     if (!remoteCombinedStreamRef.current) remoteCombinedStreamRef.current = new MediaStream();
 
     const combined = remoteCombinedStreamRef.current;
@@ -1178,6 +1242,23 @@ export default function App({ ioFactory }) {
   async function setOutgoingVideoTrack(track) {
     if (!pcRef.current) return;
 
+    const base = localStreamRef.current || new MediaStream();
+
+    // Siyah ekran düzeltmesi: preview stream içinde eski/bitmiş video track kalmasın.
+    base.getVideoTracks().forEach(oldTrack => {
+      if (!track || oldTrack.id !== track.id) {
+        try { base.removeTrack(oldTrack); } catch {}
+      }
+    });
+
+    if (track && !base.getTracks().some(t => t.id === track.id)) {
+      base.addTrack(track);
+    }
+
+    localStreamRef.current = base;
+    bindVideoNode(localVideoRef.current, base, true);
+    bindVideoNode(compactLocalVideoRef.current, base, true);
+
     const videoSender = pcRef.current.getSenders().find(sender => sender.track?.kind === "video");
 
     if (videoSender) {
@@ -1186,9 +1267,7 @@ export default function App({ ioFactory }) {
     }
 
     if (track) {
-      const stream = localStreamRef.current || new MediaStream([track]);
-      if (!stream.getTracks().some(t => t.id === track.id)) stream.addTrack(track);
-      pcRef.current.addTrack(track, stream);
+      pcRef.current.addTrack(track, base);
     }
   }
 
@@ -1241,6 +1320,9 @@ export default function App({ ioFactory }) {
     const pc = new RTCPeerConnection(rtcConfigRef.current);
     pcRef.current = pc;
 
+    // Video sonradan açılınca karşı tarafta siyah kalmaması için baştan video m-line hazır.
+    try { pc.addTransceiver("video", { direction: "sendrecv" }); } catch {}
+
     pc.onicecandidate = e => {
       if (e.candidate && socketRef.current) socketRef.current.emit("rtc:candidate", { to: peerId, candidate: e.candidate });
     };
@@ -1254,7 +1336,7 @@ export default function App({ ioFactory }) {
     };
 
     pc.onsignalingstatechange = () => {
-      console.log("Nexus RTC signaling:", pc.signalingState);
+      console.log("Orbit RTC signaling:", pc.signalingState);
     };
 
     pc.ontrack = e => {
@@ -1525,7 +1607,7 @@ export default function App({ ioFactory }) {
 
       <aside className="channelPanel">
         <div className="serverHeader" style={{ background: `linear-gradient(135deg, ${activeServer?.color || "#5865f2"}, #111827)` }}>
-          <h1>{rightTab === "dashboard" || rightTab === "friends" || rightTab === "dm" || rightTab === "groups" || rightTab === "group" ? "Nexus" : activeServer?.name}</h1>
+          <h1>{rightTab === "dashboard" || rightTab === "friends" || rightTab === "dm" || rightTab === "groups" || rightTab === "group" ? "Orbit" : activeServer?.name}</h1>
           <p>{rightTab === "dashboard" || rightTab === "friends" || rightTab === "dm" || rightTab === "groups" || rightTab === "group" ? "Sohbet, arkadaşlar ve gruplar." : activeServer?.description}</p>
         </div>
 
@@ -1796,14 +1878,23 @@ function AttachmentButton({ onUpload }) {
   );
 }
 
+function bindStandaloneVideo(node, stream, muted = false) {
+  if (!node) return;
+  node.autoplay = true;
+  node.playsInline = true;
+  node.muted = muted;
+  if (node.srcObject !== stream) node.srcObject = stream || null;
+  const tryPlay = () => node.play?.().catch(() => {});
+  node.onloadedmetadata = tryPlay;
+  try { stream?.getTracks?.().forEach(track => { track.onunmute = tryPlay; }); } catch {}
+  tryPlay();
+}
+
 function RemoteMediaTile({ stream, label, openFullscreen }) {
   const ref = useRef(null);
 
   useEffect(() => {
-    if (ref.current) {
-      ref.current.srcObject = stream;
-      ref.current.play?.().catch(() => {});
-    }
+    bindStandaloneVideo(ref.current, stream, false);
   }, [stream]);
 
   const hasVideo = Boolean(stream?.getVideoTracks?.().length);
@@ -1821,10 +1912,7 @@ function LocalGroupMediaTile({ stream, label, openFullscreen }) {
   const ref = useRef(null);
 
   useEffect(() => {
-    if (ref.current) {
-      ref.current.srcObject = stream;
-      ref.current.play?.().catch(() => {});
-    }
+    bindStandaloneVideo(ref.current, stream, true);
   }, [stream]);
 
   if (!stream) return null;
@@ -2316,7 +2404,7 @@ function SettingsModal({ user, setUser, onClose, installApp, enableNotifications
 }
 
 function InviteCreated({ modal, onClose }) {
-  return <Modal title="Resmi Davet Linki" onClose={onClose}><p className="muted">Bu link Nexus Chat tarafından oluşturuldu. Birine atınca sunucu kartı açılır.</p><div className="officialInvite"><span>✅ Resmi Nexus daveti</span><b>{modal.invite.code}</b></div><div className="inviteBox">{modal.url}</div><button className="primary" onClick={() => navigator.clipboard.writeText(modal.url)}>Linki Kopyala</button></Modal>;
+  return <Modal title="Resmi Davet Linki" onClose={onClose}><p className="muted">Bu link Orbit Client tarafından oluşturuldu. Birine atınca sunucu kartı açılır.</p><div className="officialInvite"><span>✅ Resmi Orbit daveti</span><b>{modal.invite.code}</b></div><div className="inviteBox">{modal.url}</div><button className="primary" onClick={() => navigator.clipboard.writeText(modal.url)}>Linki Kopyala</button></Modal>;
 }
 
 function InvitePreview({ invite, onJoin, onClose }) {

@@ -1,7 +1,7 @@
 {
-  "name": "Nexus Chat",
-  "short_name": "Nexus",
-  "description": "Discord benzeri ger\u00e7ek chat, DM ve sesli arama uygulamas\u0131.",
+  "name": "Orbit Client",
+  "short_name": "Orbit",
+  "description": "Discord benzeri gerçek chat, DM, grup araması, kamera ve ekran paylaşımı uygulaması.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
