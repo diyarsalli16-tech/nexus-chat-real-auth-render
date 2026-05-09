@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const API = "";
-const APP_VERSION = "V12 Mentions + Sounds + Notifications";
+const APP_VERSION = "V13 Clean Discord Dashboard";
 const defaultRtcConfig = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -1366,8 +1366,8 @@ export default function App({ ioFactory }) {
       <main className="content">
         <header className="topbar">
           <div>
-            <h2>{rightTab === "dm" ? `💬 ${dmUser?.username}` : rightTab === "group" ? `💬 ${activeGroup?.name}` : rightTab === "groups" ? "💬 Grup DM" : rightTab === "dashboard" ? "🏠 Dashboard" : rightTab === "friends" ? "👥 Arkadaşlar" : `${channelIcon(activeChannel?.type)} ${activeChannel?.name}`}</h2>
-            <p>{rightTab === "dashboard" ? `${APP_VERSION} • Kurulum, gruplar ve hızlı işlemler.` : rightTab === "groups" ? "Arkadaşlarınla özel grup sohbeti oluştur." : rightTab === "group" ? "Grup mesajlaşması." : rightTab === "friends" ? "Kullanıcı ara, arkadaş ekle, DM aç." : rightTab === "dm" ? "Özel mesaj ve sesli arama." : activeChannel?.topic}</p>
+            <h2>{rightTab === "dm" ? `💬 ${dmUser?.username}` : rightTab === "group" ? `💬 ${activeGroup?.name}` : rightTab === "groups" ? "💬 Grup DM" : rightTab === "dashboard" ? "🏠 Ana Sayfa" : rightTab === "friends" ? "👥 Arkadaşlar" : `${channelIcon(activeChannel?.type)} ${activeChannel?.name}`}</h2>
+            <p>{rightTab === "dashboard" ? `Daha sade Discord benzeri başlangıç ekranı.` : rightTab === "groups" ? "Arkadaşlarınla özel grup sohbeti oluştur." : rightTab === "group" ? "Grup mesajlaşması." : rightTab === "friends" ? "Kullanıcı ara, arkadaş ekle, DM aç." : rightTab === "dm" ? "Özel mesaj ve sesli arama." : activeChannel?.topic}</p>
           </div>
           <div className="topActions">
             <button onClick={() => setRightTab("friends")}>👥</button>
@@ -1395,6 +1395,9 @@ export default function App({ ioFactory }) {
             setRightTab={setRightTab}
             setModal={setModal}
             createInvite={createInvite}
+            openDm={openDm}
+            openGroup={openGroup}
+            activeServer={activeServer}
           />
         ) : rightTab === "friends" ? (
           <FriendsPage
@@ -1459,8 +1462,8 @@ export default function App({ ioFactory }) {
         <div className="tabs"><button onClick={() => setRightTab("dashboard")}>Home</button><button onClick={() => setRightTab("friends")}>Arkadaş</button><button onClick={() => setRightTab("groups")}>Grup</button><button onClick={() => setRightTab("members")}>Üye</button><button onClick={() => { setRightTab("audit"); loadAudit(); }}>Audit</button></div>
         {rightTab === "members" && serverMembers.map(m => <div className="memberCard" key={m.id}><div className="avatar">{m.avatar}</div><div><b>{m.username}</b><p>{m.role} • {m.status}</p><small>{m.bio}</small></div></div>)}
         {rightTab === "audit" && audit.map(a => <div className="activity" key={a.id}><b>{time(a.created_at)}</b><p>{a.action}</p></div>)}
-        {(rightTab === "friends" || rightTab === "dm" || rightTab === "dashboard") && <FriendSidebar friends={friends} openDm={openDm} />}
-        {(rightTab === "groups" || rightTab === "group" || rightTab === "dashboard") && <GroupSidebar groups={groups} openGroup={openGroup} />}
+        {(rightTab === "friends" || rightTab === "dm") && <FriendSidebar friends={friends} openDm={openDm} />}
+        {(rightTab === "groups" || rightTab === "group") && <GroupSidebar groups={groups} openGroup={openGroup} />}
       </aside>
 
       <audio ref={persistentRemoteAudioRef} autoPlay playsInline />
@@ -1529,45 +1532,105 @@ function MessageContent({ text }) {
   );
 }
 
-function DashboardPage({ user, servers, friends, groups, installApp, isInstalled, enableNotifications, notificationPermission, mentionCount, setRightTab, setModal, createInvite }) {
+
+function DashboardPage({ user, servers, friends, groups, installApp, isInstalled, enableNotifications, notificationPermission, mentionCount, setRightTab, setModal, createInvite, openDm, openGroup, activeServer }) {
+  const recentFriends = friends.friends.slice(0, 5);
+  const recentGroups = groups.slice(0, 4);
+  const recentServers = servers.slice(0, 4);
+
   return (
-    <section className="dashboardPage">
-      <div className="dashHero">
-        <div>
+    <section className="discordHome">
+      <div className="discordHero">
+        <div className="discordHeroLeft">
           <p className="eyebrow">{APP_VERSION}</p>
           <h1>Hoş geldin, {user.username}</h1>
-          <p>Discord tarzı ana panel: gruplar, sunucu katılma, davet, arama ve uygulama kurma tek yerde.</p>
-        </div>
-        <div className="dashAvatar">{user.avatar}</div>
-      </div>
-
-      <div className="statsGrid">
-        <button className="statCard" onClick={() => setRightTab("friends")}><b>{friends.friends.length}</b><span>Arkadaş</span></button>
-        <button className="statCard" onClick={() => setRightTab("groups")}><b>{groups.length}</b><span>Grup DM</span></button>
-        <button className="statCard" onClick={() => setRightTab("members")}><b>{servers.length}</b><span>Sunucu</span></button>
-        <button className="statCard" onClick={installApp}><b>⬇️</b><span>{isInstalled ? "Kuruldu" : "Uygulama Kur"}</span></button>
-        <button className="statCard mentionStat" onClick={enableNotifications}><b>{mentionCount}</b><span>Etiket / Bildirim</span></button>
-      </div>
-
-      <div className="quickGrid">
-        <div className="panelCard bigPanel">
-          <h3>Hızlı İşlemler</h3>
-          <div className="quickActions">
-            <button onClick={() => setRightTab("friends")}>👥 Arkadaş bul</button>
-            <button onClick={() => setModal("group")}>💬 Grup oluştur</button>
-            <button onClick={() => setModal("joinServer")}>➕ Sunucuya katıl</button>
-            <button onClick={createInvite}>🔗 Davet linki oluştur</button>
-            <button onClick={installApp}>⬇️ Uygulama olarak kur</button>
-            <button onClick={enableNotifications}>🔔 Bildirimleri Aç ({notificationPermission})</button>
+          <p className="muted">Daha sade bir ana sayfa: en çok kullanılan şeyler önde, kalabalık kutular yok.</p>
+          <div className="discordHeroActions">
+            <button onClick={() => setRightTab("friends")}>Arkadaşlar</button>
+            <button onClick={() => setRightTab("groups")}>Gruplar</button>
+            <button onClick={() => setModal("joinServer")}>Sunucuya Katıl</button>
+            <button onClick={() => setModal("group")}>Grup Oluştur</button>
           </div>
         </div>
-        <div className="panelCard bigPanel">
-          <h3>Aktif Özellikler</h3>
-          <p className="muted">✅ DM sesli konuşma</p>
-          <p className="muted">✅ Kamera / ekran paylaşımı butonları</p>
-          <p className="muted">✅ Grup DM oluşturma</p>
-          <p className="muted">✅ Sunucuya davetle katılma</p>
-          <p className="muted">✅ PWA uygulama kurma</p>
+        <div className="discordHeroRight">
+          <div className="heroMiniStat"><b>{friends.friends.length}</b><span>Arkadaş</span></div>
+          <div className="heroMiniStat"><b>{groups.length}</b><span>Grup</span></div>
+          <div className="heroMiniStat"><b>{servers.length}</b><span>Sunucu</span></div>
+          <div className="heroMiniStat"><b>{mentionCount}</b><span>Etiket</span></div>
+        </div>
+      </div>
+
+      <div className="discordHomeGrid">
+        <div className="panelCard homeCard">
+          <div className="homeCardHeader">
+            <h3>Hızlı Başlat</h3>
+            <span>Bugün en çok lazım olanlar</span>
+          </div>
+          <div className="homeActionList">
+            <button onClick={() => setRightTab("friends")}><b>👥</b><div><strong>Arkadaşları Aç</strong><small>DM başlat, istekleri gör</small></div></button>
+            <button onClick={() => setRightTab("groups")}><b>💬</b><div><strong>Grupları Aç</strong><small>Grup DM ve grup sesi</small></div></button>
+            <button onClick={() => setModal("joinServer")}><b>➕</b><div><strong>Sunucuya Katıl</strong><small>Davet kodu ile katıl</small></div></button>
+            <button onClick={createInvite}><b>🔗</b><div><strong>Davet Linki Oluştur</strong><small>Başkasına atılacak davet</small></div></button>
+            <button onClick={enableNotifications}><b>🔔</b><div><strong>Bildirimleri Aç</strong><small>Durum: {notificationPermission}</small></div></button>
+            <button onClick={installApp}><b>⬇️</b><div><strong>{isInstalled ? "Uygulama Kuruldu" : "Uygulama Olarak Kur"}</strong><small>Pencere gibi açılır</small></div></button>
+          </div>
+        </div>
+
+        <div className="panelCard homeCard">
+          <div className="homeCardHeader">
+            <h3>Son DM'ler</h3>
+            <button className="miniLink" onClick={() => setRightTab("friends")}>Tümünü Gör</button>
+          </div>
+          <div className="homeList">
+            {recentFriends.length > 0 ? recentFriends.map(f => (
+              <button key={f.id} className="homeListItem" onClick={() => openDm(f)}>
+                <div className="avatar">{f.avatar}</div>
+                <div className="homeListText">
+                  <b>{f.username}</b>
+                  <span>{f.status || "online"}</span>
+                </div>
+                <small>Mesaj</small>
+              </button>
+            )) : <div className="emptyState"><b>Henüz arkadaş yok</b><span>Önce arkadaş ekleyince burada görünür.</span></div>}
+          </div>
+        </div>
+
+        <div className="panelCard homeCard">
+          <div className="homeCardHeader">
+            <h3>Gruplar</h3>
+            <button className="miniLink" onClick={() => setModal("group")}>Oluştur</button>
+          </div>
+          <div className="homeList">
+            {recentGroups.length > 0 ? recentGroups.map(g => (
+              <button key={g.id} className="homeListItem" onClick={() => openGroup(g)}>
+                <div className="avatar">💬</div>
+                <div className="homeListText">
+                  <b>{g.name}</b>
+                  <span>{g.member_count || 1} üye</span>
+                </div>
+                <small>Aç</small>
+              </button>
+            )) : <div className="emptyState"><b>Henüz grup yok</b><span>Arkadaşlarından grup oluştur.</span></div>}
+          </div>
+        </div>
+
+        <div className="panelCard homeCard">
+          <div className="homeCardHeader">
+            <h3>Sunucular</h3>
+            <button className="miniLink" onClick={() => setRightTab("members")}>Aç</button>
+          </div>
+          <div className="homeList">
+            {recentServers.length > 0 ? recentServers.map(s => (
+              <div key={s.id} className={`homeListItem static ${activeServer?.id === s.id ? "active" : ""}`}>
+                <div className="avatar" style={{ background: s.color }}>{s.icon}</div>
+                <div className="homeListText">
+                  <b>{s.name}</b>
+                  <span>{s.description || "Sunucu"}</span>
+                </div>
+                <small>{activeServer?.id === s.id ? "Aktif" : "Sunucu"}</small>
+              </div>
+            )) : <div className="emptyState"><b>Henüz sunucu yok</b><span>Soldaki + ile yeni sunucu aç.</span></div>}
+          </div>
         </div>
       </div>
     </section>

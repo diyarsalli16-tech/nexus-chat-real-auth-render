@@ -1,6 +1,6 @@
 {
-  "name": "nexus-chat-v12-mentions-sounds-notifications",
-  "version": "12.0.0",
+  "name": "nexus-chat-v13-clean-discord-dashboard",
+  "version": "13.0.0",
   "private": true,
   "type": "module",
   "scripts": {

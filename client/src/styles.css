@@ -161,3 +161,97 @@ body.pwa-standalone .globalCallDock{bottom:28px}
 .topActions button:hover,.quickActions button:hover,.statCard:hover,.serverBoost:hover,.channelBtn:hover{transform:translateY(-1px)}
 @media(max-width:1120px){.dmLayout{grid-template-columns:1fr}.callPanel .videoTile{height:240px}}
 @media(max-width:760px){.callPanel .videoTile{height:210px}.globalCallDock .dockVideo{width:100%;height:120px}.globalCallDock .dockVideo.small{width:100%;height:110px}}
+
+
+/* V13 cleaner discord-like dashboard */
+.discordHome{
+  display:flex;
+  flex-direction:column;
+  gap:18px;
+  padding:8px 4px 16px;
+}
+.discordHero{
+  min-height:180px;
+  border-radius:24px;
+  border:1px solid rgba(255,255,255,.08);
+  background:
+    radial-gradient(900px 280px at top right, rgba(88,101,242,.18), transparent 55%),
+    linear-gradient(180deg, rgba(20,24,36,.96), rgba(12,16,26,.96));
+  display:grid;
+  grid-template-columns: minmax(0,1.5fr) minmax(260px,.9fr);
+  gap:18px;
+  padding:24px;
+}
+.discordHero h1{font-size:42px;margin:6px 0 10px;line-height:1.02}
+.discordHero .muted{max-width:720px}
+.discordHeroActions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.discordHeroActions button{
+  height:42px;border-radius:14px;padding:0 14px;
+  background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.08);color:#fff;font-weight:900
+}
+.discordHeroActions button:hover{background:rgba(88,101,242,.22)}
+.discordHeroRight{
+  display:grid;grid-template-columns:repeat(2,1fr);gap:12px;
+}
+.heroMiniStat{
+  border-radius:20px;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+  padding:16px;
+  display:flex;flex-direction:column;justify-content:center;min-height:84px
+}
+.heroMiniStat b{font-size:30px;line-height:1;color:#fff}
+.heroMiniStat span{margin-top:6px;color:#94a3b8;font-weight:700}
+.discordHomeGrid{
+  display:grid;
+  grid-template-columns:1.35fr 1fr;
+  gap:18px;
+}
+.homeCard{padding:18px}
+.homeCardHeader{
+  display:flex;align-items:center;justify-content:space-between;margin-bottom:12px
+}
+.homeCardHeader h3{margin:0;font-size:18px}
+.homeCardHeader span,.miniLink{color:#94a3b8;font-size:12px}
+.miniLink{background:transparent;border:none;font-weight:900}
+.homeActionList{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.homeActionList button,.homeListItem{
+  border-radius:18px;
+  padding:14px;
+  text-align:left;
+  background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.08);
+  display:flex;
+  align-items:center;
+  gap:12px;
+  transition:transform .14s ease, background .14s ease, border-color .14s ease;
+}
+.homeActionList button:hover,.homeListItem:hover{transform:translateY(-1px);background:rgba(255,255,255,.06);border-color:rgba(129,140,248,.24)}
+.homeActionList button b{font-size:20px;display:grid;place-items:center;width:34px;height:34px;border-radius:12px;background:rgba(88,101,242,.18)}
+.homeActionList button strong{display:block;color:#fff}
+.homeActionList button small{display:block;color:#94a3b8;margin-top:3px}
+.homeList{display:flex;flex-direction:column;gap:10px}
+.homeListItem .avatar{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;font-weight:900}
+.homeListItem small{margin-left:auto;color:#94a3b8;font-weight:900}
+.homeListText{display:flex;flex-direction:column;gap:2px;text-align:left}
+.homeListText b{color:#fff}
+.homeListText span{color:#94a3b8;font-size:12px}
+.homeListItem.static{cursor:default}
+.homeListItem.static:hover{transform:none}
+.emptyState{
+  min-height:120px;border-radius:18px;display:grid;place-items:center;text-align:center;
+  background:rgba(255,255,255,.03);border:1px dashed rgba(255,255,255,.1);padding:18px
+}
+.emptyState b{display:block;color:#fff}
+.emptyState span{display:block;color:#94a3b8;margin-top:6px}
+@media(max-width:1180px){
+  .discordHero{grid-template-columns:1fr}
+  .discordHomeGrid{grid-template-columns:1fr}
+}
+@media(max-width:760px){
+  .discordHero{padding:18px}
+  .discordHero h1{font-size:30px}
+  .discordHeroRight{grid-template-columns:repeat(2,1fr)}
+  .homeActionList{grid-template-columns:1fr}
+}

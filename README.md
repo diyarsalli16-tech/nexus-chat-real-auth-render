@@ -1,21 +1,17 @@
-# Nexus Chat V12 Mentions + Sounds + Notifications
+# Nexus Chat V13 Clean Discord Dashboard
 
 Bu sürüm:
-- @username etiketlerini mesaj içinde renklendirir.
-- @kullanici ile etiketlenince bildirim sesi çalar.
-- Bildirim izni verilirse Windows/Chrome masaüstü bildirimi gösterir.
-- Mention sayacı ile başlıkta (1), (2), (3) gösterir.
-- Gelen arama sesi/ringtone ekler.
-- Gelen arama masaüstü bildirimi gösterir.
-- Mesaj ve panel animasyonları ekler.
-- Kamera/video alanını büyütür.
-- Service worker cache V12 olur.
+- Dashboard'ı sadeleştirir.
+- Discord benzeri daha temiz bir ana sayfa düzeni verir.
+- Sağ panelde dashboard için gereksiz arkadaş/grup listelerini kaldırır.
+- Hızlı Başlat, Son DM'ler, Gruplar ve Sunucular blokları ekler.
+- Büyük karışık kartları kaldırır.
 
 Kurulum:
 cd /d "%USERPROFILE%\Downloads"
-tar -xf nexus-chat-v12-mentions-sounds-notifications.zip -C "%USERPROFILE%\Desktop"
-xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v12-mentions-sounds-notifications\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
+tar -xf nexus-chat-v13-clean-discord-dashboard.zip -C "%USERPROFILE%\Desktop"
+xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v13-clean-discord-dashboard\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
 cd /d "%USERPROFILE%\Desktop\nexus-chat-real-auth-render"
 git add .
-git commit -m "add mentions sounds notifications and larger camera"
+git commit -m "clean dashboard make it more discord-like"
 git push
