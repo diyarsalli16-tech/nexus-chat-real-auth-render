@@ -1,17 +1,17 @@
-# Nexus Chat V5 TURN + Debug
+# Nexus Chat V6 SocketRef Call Fix
 
-Bu sürüm DM ses aramasında "Bağlanıyor..." kalma sorununu hedefler.
+Bu sürüm DM sesli aramada Bağlanıyor... takılmasını hedefler.
 
-Eklenenler:
-- WebRTC için TURN fallback eklendi.
-- /api/rtc-config endpoint'i eklendi.
-- İstersen kendi TURN bilgilerini Render Environment Variables'a ekleyebilirsin:
-  - TURN_URL=turn:senin-turn-hostun:3478
-  - TURN_USERNAME=...
-  - TURN_CREDENTIAL=...
-- Arama panelinde ICE / connection state görünür.
-- Remote audio/video geldiğinde video elementine zorla bağlanır.
-- Mikrofon API yoksa net hata verir.
+Düzeltmeler:
+- WebRTC offer/candidate gönderirken stale React socket state yerine socketRef kullanılır.
+- Socket, DM değişince gereksiz reconnect olmaz.
+- RTC offer/answer hataları artık ekranda hata olarak görünür.
+- DM mesajları ve TURN config önceki sürümden korunur.
 
-Not:
-İki cihaz farklı ağdaysa TURN zorunlu olabilir. Public TURN test içindir; gerçek ürün için kendi TURN sunucunu kullan.
+Kurulum:
+1. Zip'i Desktop'a aç.
+2. İçeriği nexus-chat-real-auth-render klasörünün üstüne kopyala.
+3. git add .
+4. git commit -m "fix webrtc stale socket call signaling"
+5. git push
+6. Render Manual Deploy > Deploy latest commit.

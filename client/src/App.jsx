@@ -67,6 +67,9 @@ export default function App({ ioFactory }) {
   const [invitePreview, setInvitePreview] = useState(null);
 
   const [socket, setSocket] = useState(null);
+  const socketRef = useRef(null);
+  const dmUserRef = useRef(null);
+  const activeChannelIdRef = useRef(null);
 
   const [call, setCall] = useState({
     active: false,
@@ -178,23 +181,28 @@ export default function App({ ioFactory }) {
     handleInviteFromUrl();
   }, []);
 
+  useEffect(() => { dmUserRef.current = dmUser; }, [dmUser]);
+  useEffect(() => { activeChannelIdRef.current = activeChannelId; }, [activeChannelId]);
+
   useEffect(() => {
     if (!user || !token()) return;
 
     const s = ioFactory("/", { auth: { token: token() } });
+    socketRef.current = s;
 
     s.on("connect", () => show("Canlı bağlantı açıldı"));
     s.on("message:new", msg => setMessages(old => old.some(m => m.id === msg.id) ? old : [...old, msg]));
     s.on("message:update", msg => setMessages(old => old.map(m => m.id === msg.id ? { ...m, ...msg } : m)));
     s.on("message:delete", ({ id }) => setMessages(old => old.filter(m => m.id !== id)));
-    s.on("reaction:update", () => activeChannelId && loadMessages(activeChannelId, false));
+    s.on("reaction:update", () => activeChannelIdRef.current && loadMessages(activeChannelIdRef.current, false));
     s.on("channel:new", ch => setChannels(old => old.some(c => c.id === ch.id) ? old : [...old, ch]));
 
     s.on("friend:request", () => { loadFriends(); show("Yeni arkadaş isteği"); });
     s.on("friend:accepted", () => { loadFriends(); show("Arkadaşlık kabul edildi"); });
 
     s.on("dm:new", msg => {
-      if (dmUser && (msg.sender_id === dmUser.id || msg.receiver_id === dmUser.id)) {
+      const currentDm = dmUserRef.current;
+      if (currentDm && (msg.sender_id === currentDm.id || msg.receiver_id === currentDm.id)) {
         setDmMessages(old => old.some(m => m.id === msg.id) ? old : [...old, msg]);
       }
       show("Yeni DM");
@@ -206,8 +214,14 @@ export default function App({ ioFactory }) {
     });
 
     s.on("dm:call:accepted", async ({ from }) => {
-      setCall(c => ({ ...c, status: "Arama kabul edildi" }));
-      await createOffer(from);
+      try {
+        setCall(c => ({ ...c, status: "Arama kabul edildi" }));
+        await createOffer(from);
+      } catch (err) {
+        console.error("Nexus call offer error", err);
+        setError(err.message || "Arama offer gönderemedi.");
+        setCall(c => ({ ...c, status: "Offer hatası" }));
+      }
     });
 
     s.on("dm:call:rejected", () => {
@@ -221,18 +235,28 @@ export default function App({ ioFactory }) {
     });
 
     s.on("rtc:offer", async ({ from, offer }) => {
-      await ensurePeer(from);
-      await pcRef.current.setRemoteDescription(offer);
-      const answer = await pcRef.current.createAnswer();
-      await pcRef.current.setLocalDescription(answer);
-      s.emit("rtc:answer", { to: from, answer });
-      setCall(c => ({ ...c, active: true, peerId: from, status: "Bağlandı" }));
+      try {
+        await ensurePeer(from);
+        await pcRef.current.setRemoteDescription(offer);
+        const answer = await pcRef.current.createAnswer();
+        await pcRef.current.setLocalDescription(answer);
+        s.emit("rtc:answer", { to: from, answer });
+        setCall(c => ({ ...c, active: true, peerId: from, status: "Cevap gönderildi" }));
+      } catch (err) {
+        console.error("Nexus rtc offer error", err);
+        setError(err.message || "Gelen arama cevabı oluşturulamadı.");
+      }
     });
 
     s.on("rtc:answer", async ({ answer }) => {
-      if (pcRef.current) {
-        await pcRef.current.setRemoteDescription(answer);
-        setCall(c => ({ ...c, status: "Bağlandı" }));
+      try {
+        if (pcRef.current) {
+          await pcRef.current.setRemoteDescription(answer);
+          setCall(c => ({ ...c, status: "Answer alındı" }));
+        }
+      } catch (err) {
+        console.error("Nexus rtc answer error", err);
+        setError(err.message || "Answer işlenemedi.");
       }
     });
 
@@ -243,15 +267,18 @@ export default function App({ ioFactory }) {
     });
 
     setSocket(s);
-    return () => s.disconnect();
-  }, [user, dmUser, activeChannelId]);
+    return () => {
+      if (socketRef.current === s) socketRef.current = null;
+      s.disconnect();
+    };
+  }, [user]);
 
   useEffect(() => {
     if (activeChannelId) loadMessages(activeChannelId);
   }, [activeChannelId]);
 
   useEffect(() => {
-    if (socket && activeChannelId) socket.emit("channel:join", activeChannelId);
+    if (socketRef.current && activeChannelId) socketRef.current.emit("channel:join", activeChannelId);
   }, [socket, activeChannelId]);
 
   useEffect(() => {
@@ -479,7 +506,7 @@ export default function App({ ioFactory }) {
     pcRef.current = pc;
 
     pc.onicecandidate = e => {
-      if (e.candidate && socket) socket.emit("rtc:candidate", { to: peerId, candidate: e.candidate });
+      if (e.candidate && socketRef.current) socketRef.current.emit("rtc:candidate", { to: peerId, candidate: e.candidate });
     };
 
     pc.oniceconnectionstatechange = () => {
@@ -510,7 +537,10 @@ export default function App({ ioFactory }) {
   }
 
   async function startDmCall() {
-    if (!dmUser || !socket) return;
+    if (!dmUser || !socketRef.current) {
+      setError("Canlı bağlantı hazır değil. Sayfayı yenile.");
+      return;
+    }
     try {
       await getAudioStream();
       setCall(c => ({
@@ -521,14 +551,17 @@ export default function App({ ioFactory }) {
         status: `${dmUser.username} aranıyor...`,
         incoming: null
       }));
-      socket.emit("dm:call:invite", { to: dmUser.id });
+      socketRef.current.emit("dm:call:invite", { to: dmUser.id });
     } catch (err) {
       setError(err.message || "Mikrofon izni verilmedi.");
     }
   }
 
   async function acceptIncomingCall() {
-    if (!call.incoming || !socket) return;
+    if (!call.incoming || !socketRef.current) {
+      setError("Canlı bağlantı hazır değil. Sayfayı yenile.");
+      return;
+    }
     try {
       await getAudioStream();
       setCall(c => ({
@@ -539,7 +572,7 @@ export default function App({ ioFactory }) {
         status: "Arama kabul edildi",
         incoming: null
       }));
-      socket.emit("dm:call:accept", { to: call.incoming.from });
+      socketRef.current.emit("dm:call:accept", { to: call.incoming.from });
       await ensurePeer(call.incoming.from);
     } catch (err) {
       setError(err.message || "Mikrofon izni verilmedi.");
@@ -547,7 +580,7 @@ export default function App({ ioFactory }) {
   }
 
   function rejectIncomingCall() {
-    if (call.incoming && socket) socket.emit("dm:call:reject", { to: call.incoming.from });
+    if (call.incoming && socketRef.current) socketRef.current.emit("dm:call:reject", { to: call.incoming.from });
     setCall(c => ({ ...c, incoming: null, status: "Kapalı" }));
   }
 
@@ -555,7 +588,8 @@ export default function App({ ioFactory }) {
     const pc = await ensurePeer(peerId);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
-    socket.emit("rtc:offer", { to: peerId, offer });
+    if (!socketRef.current) throw new Error("Socket bağlantısı yok; offer gönderilemedi.");
+    socketRef.current.emit("rtc:offer", { to: peerId, offer });
     setCall(c => ({ ...c, active: true, peerId, status: "Bağlanıyor..." }));
   }
 
@@ -620,7 +654,7 @@ export default function App({ ioFactory }) {
   }
 
   function endCall(sendEvent = true) {
-    if (sendEvent && call.peerId && socket) socket.emit("dm:call:end", { to: call.peerId });
+    if (sendEvent && call.peerId && socketRef.current) socketRef.current.emit("dm:call:end", { to: call.peerId });
 
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     rawMicStreamRef.current?.getTracks().forEach(t => t.stop());
