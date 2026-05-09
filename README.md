@@ -1,24 +1,20 @@
-# Nexus Chat V16 E2EE Messages + Files
+# Nexus Chat V16.1 E2EE Device Fix
 
-Bu sürüm:
-- DM mesajlarını tarayıcıda RSA-OAEP + AES-GCM ile şifreler.
-- Grup mesajlarını tarayıcıda RSA-OAEP + AES-GCM ile şifreler.
-- Kanal mesajlarını da şifreli göndermeye çalışır.
-- Fotoğraf / gif / video / ses dosyaları önce dataURL olur, sonra mesajla birlikte şifrelenir.
-- Server ve database içerikte sadece ::e2ee:: şifreli zarf görür.
-- Kullanıcı public key serverda tutulur, private key cihazda localStorage içinde kalır.
-- Site açılırken 2 saniye "YENİ SÜRÜMDE HERŞEY ARTIK ŞİFRELİ" animasyonu geçer.
+Bu sürüm V16'daki şu hatayı düzeltir:
+- Mesajlarda sürekli "[Bu mesaj senin cihazın için şifrelenmemiş.]" çıkması.
+- E2EE çözme sırasında kullanıcı ID'si geç yüklenirse mesajın yanlış cihaz gibi algılanması.
+- Şifreleme sırasında yeni oluşturulan public key'in hemen kullanılmaması.
 
-Önemli:
-- Bir kullanıcı yeni V16 ile en az 1 kez giriş yapmadan public key oluşmaz.
-- Bir kullanıcıya/gruba şifreli mesaj göndermek için herkesin bir kez yeni sürüme girmesi gerekir.
-- Private key cihazda durduğu için farklı cihazda eski şifreli mesajlar açılamayabilir. Bu V17/V18'de key backup ile geliştirilebilir.
+Ek:
+- Ayarlar > Uygulama içinde "Bu cihazın E2EE anahtarını yenile" butonu eklendi.
+- Bu buton sadece yeni mesajlarda anahtar karıştıysa kullanılmalı.
+- Eski şifreli mesajlar eski cihaz anahtarıyla şifreliyse yeni anahtarla açılamaz.
 
 Kurulum:
 cd /d "%USERPROFILE%\Downloads"
-tar -xf nexus-chat-v16-e2ee-messages-files.zip -C "%USERPROFILE%\Desktop"
-xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v16-e2ee-messages-files\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
+tar -xf nexus-chat-v16-1-e2ee-device-fix.zip -C "%USERPROFILE%\Desktop"
+xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v16-1-e2ee-device-fix\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
 cd /d "%USERPROFILE%\Desktop\nexus-chat-real-auth-render"
 git add .
-git commit -m "add e2ee messages files and encryption splash"
+git commit -m "fix e2ee device key message decrypt"
 git push

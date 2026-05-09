@@ -1,6 +1,6 @@
 {
-  "name": "nexus-chat-v16-e2ee-messages-files",
-  "version": "16.0.0",
+  "name": "nexus-chat-v16-1-e2ee-device-fix",
+  "version": "16.1.0",
   "private": true,
   "type": "module",
   "scripts": {
