@@ -876,6 +876,37 @@ export default function App({ ioFactory }) {
   );
 }
 
+
+function GlobalCallDock({ call, dmUser, localVideoRef, remoteVideoRef, setRightTab, toggleMute, toggleCamera, toggleScreen, endCall }) {
+  return (
+    <div className="globalCallDock">
+      <div className="dockVideos">
+        <div className="dockVideo">
+          <video ref={remoteVideoRef} autoPlay playsInline />
+          <span>Karşı taraf</span>
+        </div>
+        {call.camera && (
+          <div className="dockVideo small">
+            <video ref={localVideoRef} autoPlay muted playsInline />
+            <span>Sen</span>
+          </div>
+        )}
+      </div>
+      <div className="dockInfo">
+        <b>Sesli arama aktif</b>
+        <p>{call.peerName || dmUser?.username || "DM"} • {call.status}</p>
+      </div>
+      <div className="dockButtons">
+        <button onClick={() => setRightTab("dm")}>DM'e Dön</button>
+        <button onClick={toggleMute}>{call.muted ? "Mic Aç" : "Mic Kapat"}</button>
+        <button onClick={toggleCamera}>{call.camera ? "Kamera Kapat" : "Kamera"}</button>
+        <button onClick={toggleScreen}>{call.screen ? "Ekranı Kapat" : "Ekran"}</button>
+        <button className="danger" onClick={() => endCall()}>Bitir</button>
+      </div>
+    </div>
+  );
+}
+
 function FriendsPage({ friends, userSearch, setUserSearch, searchUsers, searchResults, sendFriendRequest, acceptFriend, rejectFriend, removeFriend, openDm }) {
   return (
     <section className="friendsPage">
