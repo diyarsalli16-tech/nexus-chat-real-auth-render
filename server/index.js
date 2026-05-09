@@ -66,6 +66,23 @@ io.on("connection", (socket) => {
   socket.on("channel:join", (channelId) => socket.join(`channel:${channelId}`));
   socket.on("group:join", (groupId) => socket.join(`group:${groupId}`));
 
+  socket.on("soundboard:dm", ({ to, id }) => {
+    io.to(`user:${to}`).emit("soundboard:dm", {
+      id,
+      from: socket.user.id,
+      fromName: socket.user.username
+    });
+  });
+
+  socket.on("soundboard:group", ({ groupId, id }) => {
+    socket.to(`groupvoice:${groupId}`).emit("soundboard:group", {
+      groupId,
+      id,
+      from: socket.user.id,
+      fromName: socket.user.username
+    });
+  });
+
   socket.on("group:voice:join", async ({ groupId }) => {
     const room = `groupvoice:${groupId}`;
     const existing = await io.in(room).fetchSockets();

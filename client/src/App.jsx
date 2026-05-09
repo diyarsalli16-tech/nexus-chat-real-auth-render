@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const API = "";
-const APP_VERSION = "V14 Ultra Clean Discord UI";
+const APP_VERSION = "V15 Group Video + Soundboard + Uploads";
 const defaultRtcConfig = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -80,6 +80,8 @@ export default function App({ ioFactory }) {
     peers: []
   });
   const [groupRemoteStreams, setGroupRemoteStreams] = useState({});
+  const [groupLocalVideoOn, setGroupLocalVideoOn] = useState(false);
+  const [groupScreenOn, setGroupScreenOn] = useState(false);
 
   const [rightTab, setRightTab] = useState("dashboard");
   const [modal, setModal] = useState(null);
@@ -93,6 +95,8 @@ export default function App({ ioFactory }) {
   const groupVoiceRef = useRef(null);
   const groupVoicePcsRef = useRef(new Map());
   const groupVoiceLocalStreamRef = useRef(null);
+  const groupCameraStreamRef = useRef(null);
+  const groupScreenStreamRef = useRef(null);
   const dmUserRef = useRef(null);
   const activeChannelIdRef = useRef(null);
   const activeGroupRef = useRef(null);
@@ -149,6 +153,64 @@ export default function App({ ioFactory }) {
     setToast(msg);
     window.clearTimeout(window.__toast);
     window.__toast = window.setTimeout(() => setToast("Hazır"), 2400);
+  }
+
+  const soundboardItems = [
+    { id: "airhorn", label: "📣 Airhorn" },
+    { id: "vine", label: "💥 Boom" },
+    { id: "laser", label: "🔫 Lazer" },
+    { id: "robot", label: "🤖 Robot" },
+    { id: "siren", label: "🚨 Siren" },
+    { id: "troll", label: "😂 Troll" }
+  ];
+
+  function playSoundboardLocal(id) {
+    if (id === "airhorn") {
+      playTone(440, .12, "square", .12);
+      setTimeout(() => playTone(660, .18, "square", .12), 130);
+      setTimeout(() => playTone(880, .20, "sawtooth", .10), 300);
+    } else if (id === "vine") {
+      playTone(160, .16, "sine", .14);
+      setTimeout(() => playTone(90, .25, "sine", .12), 170);
+    } else if (id === "laser") {
+      for (let i=0;i<6;i++) setTimeout(() => playTone(1200 - i*120, .07, "sawtooth", .07), i*60);
+    } else if (id === "robot") {
+      [300, 240, 360, 180, 420].forEach((f,i) => setTimeout(() => playTone(f, .08, "square", .07), i*90));
+    } else if (id === "siren") {
+      for (let i=0;i<8;i++) setTimeout(() => playTone(i % 2 ? 760 : 520, .12, "sine", .08), i*140);
+    } else {
+      [523, 659, 784, 1046].forEach((f,i) => setTimeout(() => playTone(f, .10, "triangle", .07), i*110));
+    }
+  }
+
+  function sendDmSound(id) {
+    playSoundboardLocal(id);
+    if (call.active && call.peerId) socketRef.current?.emit("soundboard:dm", { to: call.peerId, id });
+  }
+
+  function sendGroupSound(id) {
+    playSoundboardLocal(id);
+    if (groupVoice.active && groupVoice.groupId) socketRef.current?.emit("soundboard:group", { groupId: groupVoice.groupId, id });
+  }
+
+  function fileToDataMessage(file) {
+    return new Promise((resolve, reject) => {
+      if (!file) return reject(new Error("Dosya seçilmedi."));
+      if (file.size > 6 * 1024 * 1024) return reject(new Error("Dosya çok büyük. Şimdilik en fazla 6 MB."));
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Dosya okunamadı."));
+      reader.onload = () => {
+        const payload = {
+          kind: "file",
+          name: file.name,
+          type: file.type || "application/octet-stream",
+          size: file.size,
+          dataUrl: reader.result
+        };
+        resolve("::file::" + JSON.stringify(payload));
+      };
+      reader.readAsDataURL(file);
+    });
   }
 
 
@@ -410,6 +472,16 @@ export default function App({ ioFactory }) {
       show("Yeni DM");
     });
 
+    s.on("soundboard:dm", ({ id, fromName }) => {
+      playSoundboardLocal(id);
+      show(`${fromName || "Kullanıcı"} ses efekti çaldı`);
+    });
+
+    s.on("soundboard:group", ({ id, fromName }) => {
+      playSoundboardLocal(id);
+      show(`${fromName || "Kullanıcı"} grup ses efekti çaldı`);
+    });
+
     s.on("group:new", group => {
       setGroups(old => old.some(g => g.id === group.id) ? old : [group, ...old]);
       show("Yeni gruba eklendin");
@@ -615,10 +687,10 @@ export default function App({ ioFactory }) {
     location.href = "/";
   }
 
-  async function sendMessage() {
-    const content = draft.trim();
+  async function sendMessage(contentOverride = null) {
+    const content = (contentOverride ?? draft).trim();
     if (!content || !activeChannel) return;
-    setDraft("");
+    if (!contentOverride) setDraft("");
 
     try {
       await api(`/api/channels/${activeChannel.id}/messages`, {
@@ -627,6 +699,7 @@ export default function App({ ioFactory }) {
       });
     } catch (err) {
       setError(err.message);
+      if (!contentOverride) setDraft(content);
     }
   }
 
@@ -694,11 +767,12 @@ export default function App({ ioFactory }) {
     setDmMessages(data.messages);
   }
 
-  async function sendDm() {
-    if (!dmUser || !dmDraft.trim()) return;
+  async function sendDm(contentOverride = null) {
+    if (!dmUser) return;
 
-    const content = dmDraft.trim();
-    setDmDraft("");
+    const content = (contentOverride ?? dmDraft).trim();
+    if (!content) return;
+    if (!contentOverride) setDmDraft("");
 
     try {
       const data = await api(`/api/dms/${dmUser.id}/messages`, {
@@ -706,11 +780,10 @@ export default function App({ ioFactory }) {
         body: JSON.stringify({ content })
       });
 
-      // Socket geç gelse bile gönderen kişi mesajı anında görsün.
       setDmMessages(old => old.some(m => m.id === data.message.id) ? old : [...old, data.message]);
     } catch (err) {
       setError(err.message);
-      setDmDraft(content);
+      if (!contentOverride) setDmDraft(content);
     }
   }
 
@@ -730,6 +803,42 @@ export default function App({ ioFactory }) {
 
     groupVoiceLocalStreamRef.current = stream;
     return stream;
+  }
+
+  async function ensureGroupVideoTrack() {
+    if (groupCameraStreamRef.current?.getVideoTracks?.()[0]) return groupCameraStreamRef.current.getVideoTracks()[0];
+
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    groupCameraStreamRef.current = stream;
+    return stream.getVideoTracks()[0];
+  }
+
+  async function renegotiateGroupPeers() {
+    const groupId = groupVoice.groupId || groupVoiceRef.current?.groupId;
+    if (!groupId || !socketRef.current) return;
+
+    for (const [socketId, pc] of groupVoicePcsRef.current.entries()) {
+      if (pc.signalingState !== "stable") continue;
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socketRef.current.emit("group:rtc:offer", { to: socketId, groupId, offer });
+    }
+  }
+
+  async function setGroupOutgoingVideoTrack(track) {
+    const base = await getGroupVoiceStream();
+
+    if (track && !base.getTracks().some(t => t.id === track.id)) {
+      base.addTrack(track);
+    }
+
+    for (const pc of groupVoicePcsRef.current.values()) {
+      const sender = pc.getSenders().find(s => s.track?.kind === "video");
+      if (sender) await sender.replaceTrack(track || null);
+      else if (track) pc.addTrack(track, base);
+    }
+
+    await renegotiateGroupPeers();
   }
 
   async function createGroupPeer(socketId, userInfo, initiator, groupId) {
@@ -757,8 +866,8 @@ export default function App({ ioFactory }) {
       setGroupRemoteStreams(old => ({ ...old, [socketId]: e.streams[0] }));
       setGroupVoice(c => ({
         ...c,
-        peers: c.peers.some(p => p.socketId === socketId) ? c.peers : [...c.peers, { socketId, ...userInfo, status: "ses geldi" }],
-        status: "Grup sesi geldi"
+        peers: c.peers.some(p => p.socketId === socketId) ? c.peers : [...c.peers, { socketId, ...userInfo, status: "medya geldi" }],
+        status: "Grup medya bağlantısı geldi"
       }));
     };
 
@@ -803,9 +912,18 @@ export default function App({ ioFactory }) {
   function leaveGroupVoice() {
     if (groupVoice.groupId) socketRef.current?.emit("group:voice:leave", { groupId: groupVoice.groupId });
     for (const socketId of groupVoicePcsRef.current.keys()) closeGroupPeer(socketId);
+
     groupVoiceLocalStreamRef.current?.getTracks().forEach(t => t.stop());
+    groupCameraStreamRef.current?.getTracks().forEach(t => t.stop());
+    groupScreenStreamRef.current?.getTracks().forEach(t => t.stop());
+
     groupVoiceLocalStreamRef.current = null;
+    groupCameraStreamRef.current = null;
+    groupScreenStreamRef.current = null;
+
     setGroupRemoteStreams({});
+    setGroupLocalVideoOn(false);
+    setGroupScreenOn(false);
     setGroupVoice({ active: false, groupId: null, status: "Kapalı", muted: false, peers: [] });
   }
 
@@ -813,6 +931,62 @@ export default function App({ ioFactory }) {
     const next = !groupVoice.muted;
     groupVoiceLocalStreamRef.current?.getAudioTracks().forEach(t => t.enabled = !next);
     setGroupVoice(c => ({ ...c, muted: next }));
+  }
+
+  async function toggleGroupCamera() {
+    try {
+      if (!groupVoice.active) await joinGroupVoice();
+
+      if (groupLocalVideoOn) {
+        groupCameraStreamRef.current?.getTracks().forEach(t => t.stop());
+        groupCameraStreamRef.current = null;
+        setGroupLocalVideoOn(false);
+
+        const screenTrack = groupScreenStreamRef.current?.getVideoTracks?.()[0] || null;
+        await setGroupOutgoingVideoTrack(screenTrack);
+        return;
+      }
+
+      const track = await ensureGroupVideoTrack();
+      setGroupLocalVideoOn(true);
+      await setGroupOutgoingVideoTrack(track);
+    } catch (err) {
+      setError(err.message || "Grup kamerası açılamadı.");
+    }
+  }
+
+  async function toggleGroupScreen() {
+    try {
+      if (!groupVoice.active) await joinGroupVoice();
+
+      if (groupScreenOn) {
+        groupScreenStreamRef.current?.getTracks().forEach(t => t.stop());
+        groupScreenStreamRef.current = null;
+        setGroupScreenOn(false);
+
+        const cameraTrack = groupCameraStreamRef.current?.getVideoTracks?.()[0] || null;
+        await setGroupOutgoingVideoTrack(cameraTrack);
+        return;
+      }
+
+      if (!navigator.mediaDevices?.getDisplayMedia) throw new Error("Ekran paylaşımı desteklenmiyor.");
+
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      const track = stream.getVideoTracks()[0];
+
+      track.onended = async () => {
+        groupScreenStreamRef.current = null;
+        setGroupScreenOn(false);
+        const cameraTrack = groupCameraStreamRef.current?.getVideoTracks?.()[0] || null;
+        await setGroupOutgoingVideoTrack(cameraTrack);
+      };
+
+      groupScreenStreamRef.current = stream;
+      setGroupScreenOn(true);
+      await setGroupOutgoingVideoTrack(track);
+    } catch (err) {
+      setError(err.message || "Grup ekran paylaşımı açılamadı.");
+    }
   }
 
 
@@ -843,10 +1017,11 @@ export default function App({ ioFactory }) {
     socketRef.current?.emit("group:join", group.id);
   }
 
-  async function sendGroupMessage() {
-    if (!activeGroup || !groupDraft.trim()) return;
-    const content = groupDraft.trim();
-    setGroupDraft("");
+  async function sendGroupMessage(contentOverride = null) {
+    if (!activeGroup) return;
+    const content = (contentOverride ?? groupDraft).trim();
+    if (!content) return;
+    if (!contentOverride) setGroupDraft("");
 
     try {
       const data = await api(`/api/groups/${activeGroup.id}/messages`, {
@@ -856,7 +1031,7 @@ export default function App({ ioFactory }) {
       setGroupMessages(old => old.some(m => m.id === data.message.id) ? old : [...old, data.message]);
     } catch (err) {
       setError(err.message);
-      setGroupDraft(content);
+      if (!contentOverride) setGroupDraft(content);
     }
   }
 
@@ -1418,6 +1593,15 @@ export default function App({ ioFactory }) {
             joinGroupVoice={joinGroupVoice}
             leaveGroupVoice={leaveGroupVoice}
             toggleGroupMute={toggleGroupMute}
+            toggleGroupCamera={toggleGroupCamera}
+            toggleGroupScreen={toggleGroupScreen}
+            groupLocalVideoOn={groupLocalVideoOn}
+            groupScreenOn={groupScreenOn}
+            groupLocalStream={groupVoiceLocalStreamRef.current}
+            groupCameraStream={groupCameraStreamRef.current}
+            groupScreenStream={groupScreenStreamRef.current}
+            soundboardItems={soundboardItems}
+            sendGroupSound={sendGroupSound}
           />
         ) : rightTab === "dm" ? (
           <DMPage
@@ -1438,6 +1622,8 @@ export default function App({ ioFactory }) {
             toggleScreen={toggleScreen}
             endCall={endCall}
             setCall={setCall}
+            soundboardItems={soundboardItems}
+            sendDmSound={sendDmSound}
           />
         ) : ["voice", "stage"].includes(activeChannel?.type) ? (
           <section className="voiceRoom">
@@ -1446,7 +1632,7 @@ export default function App({ ioFactory }) {
             <button className="primary" onClick={() => setError("Sunucu odaları için grup WebRTC/SFU gerekir. Şu an DM P2P araması eklendi.")}>Sunucu Ses Paneli</button>
           </section>
         ) : (
-          <Chat messages={messages} user={user} activeChannel={activeChannel} draft={draft} setDraft={setDraft} sendMessage={sendMessage} react={react} pin={pin} del={del} edit={edit} />
+          <Chat messages={messages} user={user} activeChannel={activeChannel} draft={draft} setDraft={setDraft} sendMessage={sendMessage} react={react} pin={pin} del={del} edit={edit} onUpload={sendMessage} />
         )}
       </main>
 
@@ -1526,7 +1712,34 @@ export default function App({ ioFactory }) {
 
 
 function MessageContent({ text }) {
-  const parts = String(text || "").split(/(@[a-zA-Z0-9_ğüşöçıİĞÜŞÖÇ.-]{2,32})/g);
+  const raw = String(text || "");
+
+  if (raw.startsWith("::file::")) {
+    try {
+      const file = JSON.parse(raw.slice("::file::".length));
+      const type = file.type || "";
+      const isImage = type.startsWith("image/");
+      const isVideo = type.startsWith("video/");
+      const isAudio = type.startsWith("audio/");
+
+      return (
+        <div className="attachmentCard">
+          {isImage && <img src={file.dataUrl} alt={file.name} />}
+          {isVideo && <video src={file.dataUrl} controls />}
+          {isAudio && <audio src={file.dataUrl} controls />}
+          <div className="attachmentInfo">
+            <b>{file.name}</b>
+            <span>{Math.round((file.size || 0) / 1024)} KB</span>
+            <a href={file.dataUrl} download={file.name}>İndir</a>
+          </div>
+        </div>
+      );
+    } catch {
+      return <span>Dosya gösterilemedi.</span>;
+    }
+  }
+
+  const parts = raw.split(/(@[a-zA-Z0-9_ğüşöçıİĞÜŞÖÇ.-]{2,32})/g);
   return (
     <>
       {parts.map((part, index) => {
@@ -1537,6 +1750,83 @@ function MessageContent({ text }) {
   );
 }
 
+function AttachmentButton({ onUpload }) {
+  const inputRef = useRef(null);
+
+  async function pick(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+
+    try {
+      const content = await fileToDataMessage(file);
+      await onUpload(content);
+    } catch (err) {
+      alert(err.message || "Dosya gönderilemedi.");
+    }
+  }
+
+  return (
+    <>
+      <button type="button" onClick={() => inputRef.current?.click()}>＋</button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,image/gif,video/*,audio/*,.webp"
+        onChange={pick}
+        style={{ display: "none" }}
+      />
+    </>
+  );
+}
+
+function RemoteMediaTile({ stream, label }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.srcObject = stream;
+      ref.current.play?.().catch(() => {});
+    }
+  }, [stream]);
+
+  const hasVideo = Boolean(stream?.getVideoTracks?.().length);
+
+  return (
+    <div className="groupMediaTile">
+      {hasVideo ? <video ref={ref} autoPlay playsInline /> : <div className="audioOnly">🔊</div>}
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function LocalGroupMediaTile({ stream, label }) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.srcObject = stream;
+      ref.current.play?.().catch(() => {});
+    }
+  }, [stream]);
+
+  if (!stream) return null;
+
+  return (
+    <div className="groupMediaTile">
+      <video ref={ref} autoPlay muted playsInline />
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function Soundboard({ items, onPlay }) {
+  return (
+    <div className="soundboard">
+      {items.map(item => <button key={item.id} onClick={() => onPlay(item.id)}>{item.label}</button>)}
+    </div>
+  );
+}
 
 function DashboardPage({ user, servers, friends, groups, installApp, isInstalled, enableNotifications, notificationPermission, mentionCount, setRightTab, setModal, createInvite, openDm, openGroup, activeServer }) {
   const recentFriends = friends.friends.slice(0, 6);
@@ -1627,7 +1917,27 @@ function GroupsPage({ groups, openGroup, setModal }) {
   );
 }
 
-function GroupChatPage({ activeGroup, messages, draft, setDraft, send, groupVoice, groupRemoteStreams, joinGroupVoice, leaveGroupVoice, toggleGroupMute }) {
+function GroupChatPage({
+  activeGroup,
+  messages,
+  draft,
+  setDraft,
+  send,
+  groupVoice,
+  groupRemoteStreams,
+  joinGroupVoice,
+  leaveGroupVoice,
+  toggleGroupMute,
+  toggleGroupCamera,
+  toggleGroupScreen,
+  groupLocalVideoOn,
+  groupScreenOn,
+  groupLocalStream,
+  groupCameraStream,
+  groupScreenStream,
+  soundboardItems,
+  sendGroupSound
+}) {
   if (!activeGroup) return <section className="friendsPage"><div className="panelCard"><h3>Grup seçilmedi</h3><p className="muted">Grup DM listesinden bir grup aç.</p></div></section>;
 
   const inThisVoice = groupVoice.active && groupVoice.groupId === activeGroup.id;
@@ -1644,6 +1954,8 @@ function GroupChatPage({ activeGroup, messages, draft, setDraft, send, groupVoic
           <div className="groupVoiceActions">
             {!inThisVoice ? <button onClick={joinGroupVoice}>🔊 Grup Sesine Katıl</button> : <>
               <button onClick={toggleGroupMute}>{groupVoice.muted ? "Mic Aç" : "Mic Kapat"}</button>
+              <button onClick={toggleGroupCamera}>{groupLocalVideoOn ? "Kamera Kapat" : "Kamera Aç"}</button>
+              <button onClick={toggleGroupScreen}>{groupScreenOn ? "Ekranı Kapat" : "Ekran Paylaş"}</button>
               <button className="danger" onClick={leaveGroupVoice}>Sesten Çık</button>
             </>}
           </div>
@@ -1651,19 +1963,32 @@ function GroupChatPage({ activeGroup, messages, draft, setDraft, send, groupVoic
 
         {inThisVoice && (
           <div className="groupVoicePanel">
-            <h3>🔊 Grup Sesli Sohbet</h3>
+            <h3>🎥 Grup Ses / Kamera / Ekran</h3>
             <p>{groupVoice.status}</p>
+
+            <div className="groupMediaGrid">
+              <LocalGroupMediaTile stream={groupScreenStream || groupCameraStream} label={groupScreenOn ? "Senin ekranın" : "Senin kameran"} />
+              {Object.entries(groupRemoteStreams).map(([id, stream]) => {
+                const peer = groupVoice.peers.find(p => p.socketId === id);
+                return <RemoteMediaTile key={id} stream={stream} label={peer?.username || "Katılımcı"} />;
+              })}
+            </div>
+
             <div className="voiceParticipants">
               <div className="voicePill">Sen {groupVoice.muted ? "• susturuldu" : "• konuşuyor"}</div>
               {groupVoice.peers.map(p => <div className="voicePill" key={p.socketId}>{p.username || "Kullanıcı"} • {p.status}</div>)}
             </div>
+
+            <h4>🎛 Troll Ses Paneli</h4>
+            <Soundboard items={soundboardItems} onPlay={sendGroupSound} />
+
             {Object.entries(groupRemoteStreams).map(([id, stream]) => <RemoteAudio key={id} stream={stream} />)}
           </div>
         )}
 
         {messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span></div><p><MessageContent text={m.content} /></p></div></article>)}
       </div>
-      <div className="composer"><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={`${activeGroup.name} grubuna mesaj yaz`} /><button onClick={send}>➤</button></div>
+      <div className="composer"><AttachmentButton onUpload={send} /><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={`${activeGroup.name} grubuna mesaj yaz`} /><button onClick={() => send()}>➤</button></div>
     </section>
   );
 }
@@ -1779,7 +2104,7 @@ function FriendSidebar({ friends, openDm }) {
   </>;
 }
 
-function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, remoteVideoRef, screenVideoRef, startDmCall, acceptIncomingCall, rejectIncomingCall, toggleMute, toggleCamera, toggleScreen, endCall, setCall }) {
+function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, remoteVideoRef, screenVideoRef, startDmCall, acceptIncomingCall, rejectIncomingCall, toggleMute, toggleCamera, toggleScreen, endCall, setCall, soundboardItems, sendDmSound }) {
   if (!dmUser) return <section className="friendsPage"><div className="panelCard"><h3>DM seçilmedi</h3><p className="muted">Arkadaşlar listesinden birini seç.</p></div></section>;
 
   return (
@@ -1789,7 +2114,7 @@ function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, 
           <div className="channelHero"><div className="heroIcon">💬</div><div><h2>{dmUser.username}</h2><p>Özel mesaj ve sesli arama.</p></div></div>
           {messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span></div><p><MessageContent text={m.content} /></p></div></article>)}
         </div>
-        <div className="composer"><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={`${dmUser.username} kullanıcısına mesaj yaz`} /><button onClick={send}>➤</button></div>
+        <div className="composer"><AttachmentButton onUpload={send} /><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={`${dmUser.username} kullanıcısına mesaj yaz`} /><button onClick={() => send()}>➤</button></div>
       </div>
 
       <div className="callPanel">
@@ -1811,6 +2136,13 @@ function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, 
           <button className="danger" onClick={() => endCall()}>Aramayı Bitir</button>
         </div>
 
+        {call.active && (
+          <div className="soundboardBox">
+            <h4>🎛 Troll Ses Paneli</h4>
+            <Soundboard items={soundboardItems} onPlay={sendDmSound} />
+          </div>
+        )}
+
         <div className="volumeBox">
           <label>Karşı taraf sesi: {call.remoteVolume}%</label>
           <input type="range" min="0" max="100" value={call.remoteVolume} onChange={e => setCall(c => ({ ...c, remoteVolume: Number(e.target.value) }))} />
@@ -1822,8 +2154,26 @@ function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, 
   );
 }
 
-function Chat({ messages, user, activeChannel, draft, setDraft, sendMessage, react, pin, del, edit }) {
-  return <section className="chat"><div className="messages"><div className="channelHero"><div className="heroIcon">{channelIcon(activeChannel?.type)}</div><div><h2>{activeChannel?.name}</h2><p>{activeChannel?.topic}</p></div></div>{messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span>{m.pinned && <span>📌</span>}</div><p><MessageContent text={m.content} /></p><div className="reactions">{Object.entries(m.reactions || {}).map(([e,n]) => <button key={e} onClick={() => react(m,e)}>{e} {n}</button>)}</div><div className="messageActions"><button onClick={() => react(m,"👍")}>👍</button><button onClick={() => react(m,"🔥")}>🔥</button><button onClick={() => pin(m)}>Pin</button>{m.user_id===user.id && <button onClick={() => edit(m)}>Düzenle</button>}<button onClick={() => del(m)}>Sil</button></div></div></article>)}</div><div className="composer"><button>+</button><input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage()} placeholder="Mesaj yaz" /><button onClick={sendMessage}>➤</button></div></section>;
+function Chat({ messages, user, activeChannel, draft, setDraft, sendMessage, react, pin, del, edit, onUpload }) {
+  return (
+    <section className="chat">
+      <div className="messages">
+        <div className="channelHero"><div className="heroIcon">{channelIcon(activeChannel?.type)}</div><div><h2>{activeChannel?.name}</h2><p>{activeChannel?.topic}</p></div></div>
+        {messages.map(m => (
+          <article className="message" key={m.id}>
+            <div className="avatar">{m.avatar}</div>
+            <div className="messageBody">
+              <div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span>{m.pinned && <span>📌</span>}</div>
+              <p><MessageContent text={m.content} /></p>
+              <div className="reactions">{Object.entries(m.reactions || {}).map(([e,n]) => <button key={e} onClick={() => react(m,e)}>{e} {n}</button>)}</div>
+              <div className="messageActions"><button onClick={() => react(m,"👍")}>👍</button><button onClick={() => react(m,"🔥")}>🔥</button><button onClick={() => pin(m)}>Pin</button>{m.user_id===user.id && <button onClick={() => edit(m)}>Düzenle</button>}<button onClick={() => del(m)}>Sil</button></div>
+            </div>
+          </article>
+        ))}
+      </div>
+      <div className="composer"><AttachmentButton onUpload={onUpload} /><input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage()} placeholder="Mesaj yaz" /><button onClick={() => sendMessage()}>➤</button></div>
+    </section>
+  );
 }
 
 

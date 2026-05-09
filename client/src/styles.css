@@ -366,3 +366,123 @@ body.pwa-standalone .globalCallDock{bottom:28px}
   .ultraWelcome{align-items:flex-start;flex-direction:column}
   .settingsGrid{grid-template-columns:1fr;min-width:0}
 }
+
+
+/* V15 group video/screen + soundboard + uploads */
+.groupMediaGrid{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+  gap:12px;
+  margin:14px 0;
+}
+.groupMediaTile{
+  position:relative;
+  height:155px;
+  border-radius:18px;
+  overflow:hidden;
+  background:#060913;
+  border:1px solid rgba(255,255,255,.1);
+  display:grid;
+  place-items:center;
+}
+.groupMediaTile video{
+  width:100%;
+  height:100%;
+  object-fit:cover;
+}
+.groupMediaTile span{
+  position:absolute;
+  left:10px;
+  bottom:8px;
+  padding:5px 9px;
+  border-radius:999px;
+  background:rgba(0,0,0,.58);
+  color:#fff;
+  font-size:12px;
+  font-weight:900;
+}
+.audioOnly{
+  width:72px;
+  height:72px;
+  border-radius:24px;
+  display:grid;
+  place-items:center;
+  font-size:32px;
+  background:linear-gradient(135deg,#5865f2,#7c3aed);
+}
+.soundboardBox{
+  margin-top:12px;
+  padding:12px;
+  border-radius:18px;
+  background:rgba(255,255,255,.045);
+  border:1px solid rgba(255,255,255,.08);
+}
+.soundboardBox h4,.groupVoicePanel h4{
+  margin:0 0 10px;
+}
+.soundboard{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+}
+.soundboard button{
+  height:36px;
+  border-radius:12px;
+  padding:0 10px;
+  background:rgba(88,101,242,.18);
+  border:1px solid rgba(129,140,248,.18);
+  color:#fff;
+  font-weight:900;
+}
+.soundboard button:hover{
+  background:rgba(88,101,242,.32);
+}
+.attachmentCard{
+  max-width:min(520px,100%);
+  border-radius:16px;
+  overflow:hidden;
+  background:rgba(255,255,255,.055);
+  border:1px solid rgba(255,255,255,.09);
+}
+.attachmentCard img,
+.attachmentCard video{
+  display:block;
+  max-width:100%;
+  max-height:360px;
+  object-fit:contain;
+  background:#05070d;
+}
+.attachmentCard audio{
+  width:100%;
+  padding:10px;
+}
+.attachmentInfo{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:10px;
+  color:#cbd5e1;
+}
+.attachmentInfo b{
+  max-width:260px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.attachmentInfo span{
+  color:#94a3b8;
+  font-size:12px;
+}
+.attachmentInfo a{
+  margin-left:auto;
+  color:#a5b4fc;
+  font-weight:900;
+}
+.composer > button:first-child{
+  font-size:20px;
+  font-weight:950;
+}
+@media(max-width:760px){
+  .groupMediaGrid{grid-template-columns:1fr}
+  .groupMediaTile{height:210px}
+}

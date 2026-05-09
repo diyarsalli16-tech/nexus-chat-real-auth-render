@@ -1,17 +1,19 @@
-# Nexus Chat V14 Ultra Clean Discord UI
+# Nexus Chat V15 Group Video + Soundboard + Uploads
 
 Bu sürüm:
-- Dashboard'u daha da sadeleştirir.
-- Sağ üstteki kalabalık butonları kaldırır.
-- Kur, bildirim, davet, katıl, audit gibi şeyleri Ayarlar modalına taşır.
-- Sol panelde sadece Ana Sayfa / Arkadaşlar / Grup DM / Ayarlar kalır.
-- Ana sayfada sadece Direkt Mesajlar, Gruplar ve kısa butonlar kalır.
+- Grup aramasına kamera açma ekler.
+- Grup aramasına ekran paylaşımı ekler.
+- Birden fazla kişinin kamera/ekran açabilmesi için grup WebRTC mesh video track desteği ekler.
+- DM ve grup aramalarına troll ses paneli ekler.
+- Ses efektleri diğer tarafa/grup ses odasına gönderilir.
+- DM, grup ve kanal mesajlarına fotoğraf/gif/video/audio dosyası gönderme ekler.
+- Dosyalar dataURL olarak mesaj içine kaydedilir. Şimdilik maksimum 6 MB önerilir.
 
 Kurulum:
 cd /d "%USERPROFILE%\Downloads"
-tar -xf nexus-chat-v14-ultra-clean-discord-ui.zip -C "%USERPROFILE%\Desktop"
-xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v14-ultra-clean-discord-ui\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
+tar -xf nexus-chat-v15-group-video-soundboard-uploads.zip -C "%USERPROFILE%\Desktop"
+xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v15-group-video-soundboard-uploads\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
 cd /d "%USERPROFILE%\Desktop\nexus-chat-real-auth-render"
 git add .
-git commit -m "move clutter into settings and clean dashboard"
+git commit -m "add group video screen soundboard and uploads"
 git push
