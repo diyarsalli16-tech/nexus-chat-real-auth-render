@@ -1,6 +1,6 @@
 {
-  "name": "nexus-chat-v7-discord-ui-groups",
-  "version": "7.0.0",
+  "name": "nexus-chat-v8-persistent-call-pwa",
+  "version": "8.0.0",
   "private": true,
   "type": "module",
   "scripts": {

@@ -25,3 +25,42 @@
   .dashHero{padding:20px;align-items:flex-start}.dashHero h1{font-size:24px}.dashAvatar{width:72px;height:72px;font-size:32px;border-radius:24px}
   .statsGrid,.quickGrid,.groupGrid,.quickActions{grid-template-columns:1fr}
 }
+
+
+/* V8 persistent call dock + app mode */
+.globalCallDock{
+  position:fixed;
+  left:112px;
+  right:408px;
+  bottom:18px;
+  z-index:65;
+  display:flex;
+  align-items:center;
+  gap:14px;
+  padding:12px;
+  border-radius:26px;
+  background:rgba(10,14,23,.96);
+  border:1px solid rgba(255,255,255,.14);
+  box-shadow:0 24px 80px rgba(0,0,0,.45);
+  backdrop-filter:blur(18px);
+}
+.dockVideos{display:flex;gap:8px;align-items:center}
+.dockVideo{width:118px;height:70px;border-radius:18px;background:#060913;border:1px solid rgba(255,255,255,.1);overflow:hidden;position:relative;display:grid;place-items:center}
+.dockVideo.small{width:82px}
+.dockVideo video{width:100%;height:100%;object-fit:cover}
+.dockVideo span{position:absolute;left:8px;bottom:6px;font-size:11px;background:rgba(0,0,0,.5);color:#fff;padding:4px 7px;border-radius:999px}
+.dockInfo{min-width:180px;flex:1}
+.dockInfo b{display:block;color:#fff}
+.dockInfo p{margin:4px 0 0;color:#94a3b8;font-size:12px}
+.dockButtons{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.dockButtons button{height:38px;border-radius:13px;background:rgba(255,255,255,.08);color:#fff;font-weight:900;padding:0 12px}
+.dockButtons button:hover{background:rgba(88,101,242,.35)}
+body.pwa-standalone .globalCallDock{bottom:28px}
+@media(max-width:1120px){
+  .globalCallDock{right:18px}
+}
+@media(max-width:760px){
+  .globalCallDock{left:72px;right:10px;bottom:10px;align-items:flex-start;flex-direction:column}
+  .dockVideos{width:100%}.dockVideo{flex:1;width:auto}.dockButtons{width:100%;display:grid;grid-template-columns:1fr 1fr}.dockButtons button{width:100%}
+  .incomingCall{bottom:190px}
+}

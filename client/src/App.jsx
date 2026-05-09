@@ -87,6 +87,9 @@ export default function App({ ioFactory }) {
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
   const screenVideoRef = useRef(null);
+  const persistentRemoteAudioRef = useRef(null);
+  const compactLocalVideoRef = useRef(null);
+  const compactRemoteVideoRef = useRef(null);
   const pcRef = useRef(null);
   const localStreamRef = useRef(null);
   const rawMicStreamRef = useRef(null);
@@ -283,15 +286,31 @@ export default function App({ ioFactory }) {
 
   useEffect(() => {
     if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+    if (compactLocalVideoRef.current) compactLocalVideoRef.current.srcObject = localStreamRef.current;
+
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = remoteStreamRef.current;
       remoteVideoRef.current.play?.().catch(() => {});
     }
+
+    if (compactRemoteVideoRef.current) {
+      compactRemoteVideoRef.current.srcObject = remoteStreamRef.current;
+      compactRemoteVideoRef.current.play?.().catch(() => {});
+    }
+
+    if (persistentRemoteAudioRef.current) {
+      persistentRemoteAudioRef.current.srcObject = remoteStreamRef.current;
+      persistentRemoteAudioRef.current.volume = call.remoteVolume / 100;
+      persistentRemoteAudioRef.current.play?.().catch(() => {});
+    }
+
     if (screenVideoRef.current) screenVideoRef.current.srcObject = screenStreamRef.current;
   }, [call]);
 
   useEffect(() => {
     if (remoteVideoRef.current) remoteVideoRef.current.volume = call.remoteVolume / 100;
+    if (compactRemoteVideoRef.current) compactRemoteVideoRef.current.volume = call.remoteVolume / 100;
+    if (persistentRemoteAudioRef.current) persistentRemoteAudioRef.current.volume = call.remoteVolume / 100;
   }, [call.remoteVolume]);
 
   useEffect(() => {
@@ -480,6 +499,7 @@ export default function App({ ioFactory }) {
 
     if (AudioCtx) {
       const ctx = new AudioCtx();
+      await ctx.resume?.();
       const source = ctx.createMediaStreamSource(raw);
       const gain = ctx.createGain();
       const dest = ctx.createMediaStreamDestination();
@@ -526,6 +546,14 @@ export default function App({ ioFactory }) {
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = e.streams[0];
         remoteVideoRef.current.play?.().catch(() => {});
+      }
+      if (compactRemoteVideoRef.current) {
+        compactRemoteVideoRef.current.srcObject = e.streams[0];
+        compactRemoteVideoRef.current.play?.().catch(() => {});
+      }
+      if (persistentRemoteAudioRef.current) {
+        persistentRemoteAudioRef.current.srcObject = e.streams[0];
+        persistentRemoteAudioRef.current.play?.().catch(() => {});
       }
       setCall(c => ({ ...c, status: "Ses bağlantısı geldi" }));
     };
@@ -810,6 +838,22 @@ export default function App({ ioFactory }) {
         {rightTab === "audit" && audit.map(a => <div className="activity" key={a.id}><b>{time(a.created_at)}</b><p>{a.action}</p></div>)}
         {(rightTab === "friends" || rightTab === "dm") && <FriendSidebar friends={friends} openDm={openDm} />}
       </aside>
+
+      <audio ref={persistentRemoteAudioRef} autoPlay playsInline />
+
+      {call.active && (
+        <GlobalCallDock
+          call={call}
+          dmUser={dmUser}
+          localVideoRef={compactLocalVideoRef}
+          remoteVideoRef={compactRemoteVideoRef}
+          setRightTab={setRightTab}
+          toggleMute={toggleMute}
+          toggleCamera={toggleCamera}
+          toggleScreen={toggleScreen}
+          endCall={endCall}
+        />
+      )}
 
       {call.incoming && (
         <div className="incomingCall">

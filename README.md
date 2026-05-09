@@ -1,18 +1,17 @@
-# Nexus Chat V7 Discord UI + Groups
+# Nexus Chat V8 Persistent Call + PWA
 
 Bu sürüm:
-- Dashboard'u Discord benzeri kartlı hale getirir.
-- Grup DM oluşturma ve grup mesajlaşma ekler.
-- Sunucuya davet linki/koduyla katılma modalı ekler.
-- Davet linki modalını "Resmi Nexus daveti" olarak gösterir.
-- Kamera açma ve ekran paylaşımı için WebRTC renegotiation ekler.
-- Kamera/ekran paylaşımı açıldıktan sonra karşı tarafa track göndermeyi düzeltir.
-- Mobil ve panel CSS iyileştirmesi ekler.
+- DM ekranından çıksan bile sesli aramanın devam etmesi için global arama dock'u ekler.
+- Remote sesi gizli/persistent audio elementine bağlar.
+- Sekme odağı değişip geri dönünce audio/video play'i tekrar tetikler.
+- Kamera/ekran aktifken küçük overlay gösterir.
+- Siteyi uygulama gibi kurmak için PWA manifest + service worker ekler.
+- Android/Chrome ve masaüstü Chrome'da "Install app" desteği gelir.
 
 Kurulum:
-tar -xf nexus-chat-v7-discord-ui-groups.zip -C "%USERPROFILE%\Desktop"
-xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v7-discord-ui-groups\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
+tar -xf nexus-chat-v8-persistent-call-pwa.zip -C "%USERPROFILE%\Desktop"
+xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v8-persistent-call-pwa\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
 cd /d "%USERPROFILE%\Desktop\nexus-chat-real-auth-render"
 git add .
-git commit -m "add discord dashboard groups and media renegotiation"
+git commit -m "add persistent call dock and pwa app"
 git push
