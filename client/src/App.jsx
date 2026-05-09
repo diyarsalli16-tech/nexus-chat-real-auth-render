@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const API = "";
+const APP_VERSION = "V9 Real Groups + Install + Media";
 const defaultRtcConfig = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -59,7 +60,14 @@ export default function App({ ioFactory }) {
   const [dmMessages, setDmMessages] = useState([]);
   const [dmDraft, setDmDraft] = useState("");
 
-  const [rightTab, setRightTab] = useState("friends");
+  const [groups, setGroups] = useState([]);
+  const [activeGroup, setActiveGroup] = useState(null);
+  const [groupMessages, setGroupMessages] = useState([]);
+  const [groupDraft, setGroupDraft] = useState("");
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isInstalled, setIsInstalled] = useState(false);
+
+  const [rightTab, setRightTab] = useState("dashboard");
   const [modal, setModal] = useState(null);
   const [error, setError] = useState("");
   const [toast, setToast] = useState("Hazır");
@@ -70,6 +78,7 @@ export default function App({ ioFactory }) {
   const socketRef = useRef(null);
   const dmUserRef = useRef(null);
   const activeChannelIdRef = useRef(null);
+  const activeGroupRef = useRef(null);
 
   const [call, setCall] = useState({
     active: false,
@@ -134,11 +143,17 @@ export default function App({ ioFactory }) {
     }
 
     await loadFriends();
+    await loadGroups();
   }
 
   async function loadFriends() {
     const data = await api("/api/friends");
     setFriends(data);
+  }
+
+  async function loadGroups() {
+    const data = await api("/api/groups");
+    setGroups(data.groups);
   }
 
   async function loadMessages(channelId, quiet = true) {
@@ -180,12 +195,29 @@ export default function App({ ioFactory }) {
   }, []);
 
   useEffect(() => {
+    const onBeforeInstallPrompt = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+
+    const standalone =
+      window.matchMedia?.("(display-mode: standalone)")?.matches ||
+      window.navigator.standalone === true;
+
+    setIsInstalled(Boolean(standalone));
+    window.addEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+
+    return () => window.removeEventListener("beforeinstallprompt", onBeforeInstallPrompt);
+  }, []);
+
+  useEffect(() => {
     if (token()) loadBootstrap().catch(() => localStorage.removeItem("nexus_token"));
     handleInviteFromUrl();
   }, []);
 
   useEffect(() => { dmUserRef.current = dmUser; }, [dmUser]);
   useEffect(() => { activeChannelIdRef.current = activeChannelId; }, [activeChannelId]);
+  useEffect(() => { activeGroupRef.current = activeGroup; }, [activeGroup]);
 
   useEffect(() => {
     if (!user || !token()) return;
@@ -209,6 +241,18 @@ export default function App({ ioFactory }) {
         setDmMessages(old => old.some(m => m.id === msg.id) ? old : [...old, msg]);
       }
       show("Yeni DM");
+    });
+
+    s.on("group:new", group => {
+      setGroups(old => old.some(g => g.id === group.id) ? old : [group, ...old]);
+      show("Yeni gruba eklendin");
+    });
+
+    s.on("group:message:new", msg => {
+      const current = activeGroupRef.current;
+      if (current && current.id === msg.group_id) {
+        setGroupMessages(old => old.some(m => m.id === msg.id) ? old : [...old, msg]);
+      }
     });
 
     s.on("dm:call:incoming", payload => {
@@ -283,6 +327,10 @@ export default function App({ ioFactory }) {
   useEffect(() => {
     if (socketRef.current && activeChannelId) socketRef.current.emit("channel:join", activeChannelId);
   }, [socket, activeChannelId]);
+
+  useEffect(() => {
+    if (socketRef.current && activeGroup) socketRef.current.emit("group:join", activeGroup.id);
+  }, [socket, activeGroup]);
 
   useEffect(() => {
     if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
@@ -438,6 +486,74 @@ export default function App({ ioFactory }) {
       setDmDraft(content);
     }
   }
+
+
+  async function installApp() {
+    if (installPrompt) {
+      try {
+        installPrompt.prompt();
+        const choice = await installPrompt.userChoice;
+        setInstallPrompt(null);
+        if (choice?.outcome === "accepted") {
+          setIsInstalled(true);
+          show("Uygulama kuruluyor");
+        }
+      } catch {
+        setModal("installHelp");
+      }
+    } else {
+      setModal("installHelp");
+    }
+  }
+
+  async function openGroup(group) {
+    setActiveGroup(group);
+    setDmUser(null);
+    setRightTab("group");
+    const data = await api(`/api/groups/${group.id}/messages`);
+    setGroupMessages(data.messages);
+    socketRef.current?.emit("group:join", group.id);
+  }
+
+  async function sendGroupMessage() {
+    if (!activeGroup || !groupDraft.trim()) return;
+    const content = groupDraft.trim();
+    setGroupDraft("");
+
+    try {
+      const data = await api(`/api/groups/${activeGroup.id}/messages`, {
+        method: "POST",
+        body: JSON.stringify({ content })
+      });
+      setGroupMessages(old => old.some(m => m.id === data.message.id) ? old : [...old, data.message]);
+    } catch (err) {
+      setError(err.message);
+      setGroupDraft(content);
+    }
+  }
+
+  async function createGroup(form) {
+    const data = await api("/api/groups", {
+      method: "POST",
+      body: JSON.stringify(form)
+    });
+    setGroups(old => old.some(g => g.id === data.group.id) ? old : [data.group, ...old]);
+    setModal(null);
+    await openGroup(data.group);
+  }
+
+  async function joinServerByInput(value) {
+    const data = await api("/api/invites/join", {
+      method: "POST",
+      body: JSON.stringify({ code: value })
+    });
+    show("Sunucuya katıldın");
+    setModal(null);
+    await loadBootstrap();
+    setActiveServerId(data.server_id);
+    setRightTab("members");
+  }
+
 
   async function createServer(form) {
     const data = await api("/api/servers", { method: "POST", body: JSON.stringify(form) });
@@ -621,6 +737,19 @@ export default function App({ ioFactory }) {
     setCall(c => ({ ...c, active: true, peerId, status: "Bağlanıyor..." }));
   }
 
+
+  async function renegotiate() {
+    if (!pcRef.current || !call.peerId || !socketRef.current) return;
+    const pc = pcRef.current;
+    if (pc.signalingState !== "stable") return;
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socketRef.current.emit("rtc:offer", { to: call.peerId, offer });
+    setCall(c => ({ ...c, status: "Medya güncellendi" }));
+  }
+
+
   function toggleMute() {
     const stream = localStreamRef.current;
     if (!stream) return;
@@ -635,8 +764,17 @@ export default function App({ ioFactory }) {
         localStreamRef.current?.getVideoTracks().forEach(t => t.stop());
         const audioTracks = localStreamRef.current?.getAudioTracks() || [];
         localStreamRef.current = new MediaStream(audioTracks);
-        setCall(c => ({ ...c, camera: false }));
+
+        const sender = pcRef.current?.getSenders().find(s => s.track?.kind === "video");
+        if (sender) await sender.replaceTrack(null);
+
+        setCall(c => ({ ...c, camera: false, status: "Kamera kapandı" }));
+        await renegotiate();
         return;
+      }
+
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Tarayıcı kamera API'sini vermiyor. HTTPS linkiyle aç.");
       }
 
       const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -646,14 +784,15 @@ export default function App({ ioFactory }) {
 
       if (pcRef.current) {
         const sender = pcRef.current.getSenders().find(s => s.track?.kind === "video");
-        if (sender) sender.replaceTrack(videoTrack);
+        if (sender) await sender.replaceTrack(videoTrack);
         else pcRef.current.addTrack(videoTrack, base);
       }
 
       localStreamRef.current = base;
-      setCall(c => ({ ...c, camera: true }));
-    } catch {
-      setError("Kamera izni verilmedi veya kamera bulunamadı.");
+      setCall(c => ({ ...c, camera: true, status: "Kamera açıldı" }));
+      await renegotiate();
+    } catch (err) {
+      setError(err.message || "Kamera izni verilmedi veya kamera bulunamadı.");
     }
   }
 
@@ -662,22 +801,39 @@ export default function App({ ioFactory }) {
       if (call.screen) {
         screenStreamRef.current?.getTracks().forEach(t => t.stop());
         screenStreamRef.current = null;
-        setCall(c => ({ ...c, screen: false }));
+
+        const cameraTrack = localStreamRef.current?.getVideoTracks?.()[0] || null;
+        const sender = pcRef.current?.getSenders().find(s => s.track?.kind === "video");
+        if (sender) await sender.replaceTrack(cameraTrack);
+
+        setCall(c => ({ ...c, screen: false, status: "Ekran paylaşımı kapandı" }));
+        await renegotiate();
         return;
+      }
+
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        throw new Error("Tarayıcı ekran paylaşımı API'sini vermiyor.");
       }
 
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
       screenStreamRef.current = stream;
-      setCall(c => ({ ...c, screen: true }));
+      setCall(c => ({ ...c, screen: true, status: "Ekran paylaşımı açıldı" }));
 
       const screenTrack = stream.getVideoTracks()[0];
+      screenTrack.onended = async () => {
+        screenStreamRef.current = null;
+        setCall(c => ({ ...c, screen: false, status: "Ekran paylaşımı kapandı" }));
+        await renegotiate();
+      };
+
       if (pcRef.current && screenTrack) {
         const sender = pcRef.current.getSenders().find(s => s.track?.kind === "video");
-        if (sender) sender.replaceTrack(screenTrack);
+        if (sender) await sender.replaceTrack(screenTrack);
         else pcRef.current.addTrack(screenTrack, stream);
+        await renegotiate();
       }
-    } catch {
-      setError("Ekran paylaşımı iptal edildi.");
+    } catch (err) {
+      setError(err.message || "Ekran paylaşımı iptal edildi.");
     }
   }
 
@@ -737,7 +893,8 @@ export default function App({ ioFactory }) {
   return (
     <div className="app">
       <aside className="serverRail">
-        <button className={`serverIcon ${rightTab === "friends" ? "active" : ""}`} onClick={() => setRightTab("friends")}>🏠</button>
+        <button className={`serverIcon ${rightTab === "dashboard" ? "active" : ""}`} onClick={() => setRightTab("dashboard")}>🏠</button>
+        <button className={`serverIcon ${rightTab === "groups" || rightTab === "group" ? "active" : ""}`} onClick={() => setRightTab("groups")}>💬</button>
         {servers.map(s => (
           <button key={s.id} className={`serverIcon ${s.id === activeServerId ? "active" : ""}`} style={{ background: s.color }} onClick={() => {
             setActiveServerId(s.id);
@@ -756,7 +913,10 @@ export default function App({ ioFactory }) {
           <p>{rightTab === "friends" || rightTab === "dm" ? "Arkadaşlar, istekler, DM ve sesli arama." : activeServer?.description}</p>
         </div>
 
+        <button className="serverBoost" onClick={() => setRightTab("dashboard")}>🏠 Dashboard</button>
         <button className="serverBoost" onClick={() => setRightTab("friends")}>👥 Arkadaşlar</button>
+        <button className="serverBoost" onClick={() => setRightTab("groups")}>💬 Grup DM</button>
+        <button className="serverBoost" onClick={() => setModal("joinServer")}>➕ Sunucuya Katıl</button>
         <button className="serverBoost" onClick={createInvite}>🔗 Davet Linki Oluştur</button>
         <button className="serverBoost" onClick={() => { setRightTab("audit"); loadAudit(); }}>🛡 Audit / Sunucu</button>
 
@@ -778,17 +938,32 @@ export default function App({ ioFactory }) {
       <main className="content">
         <header className="topbar">
           <div>
-            <h2>{rightTab === "dm" ? `💬 ${dmUser?.username}` : rightTab === "friends" ? "👥 Arkadaşlar" : `${channelIcon(activeChannel?.type)} ${activeChannel?.name}`}</h2>
-            <p>{rightTab === "friends" ? "Kullanıcı ara, arkadaş ekle, DM aç." : rightTab === "dm" ? "Özel mesaj ve sesli arama." : activeChannel?.topic}</p>
+            <h2>{rightTab === "dm" ? `💬 ${dmUser?.username}` : rightTab === "group" ? `💬 ${activeGroup?.name}` : rightTab === "groups" ? "💬 Grup DM" : rightTab === "dashboard" ? "🏠 Dashboard" : rightTab === "friends" ? "👥 Arkadaşlar" : `${channelIcon(activeChannel?.type)} ${activeChannel?.name}`}</h2>
+            <p>{rightTab === "dashboard" ? `${APP_VERSION} • Kurulum, gruplar ve hızlı işlemler.` : rightTab === "groups" ? "Arkadaşlarınla özel grup sohbeti oluştur." : rightTab === "group" ? "Grup mesajlaşması." : rightTab === "friends" ? "Kullanıcı ara, arkadaş ekle, DM aç." : rightTab === "dm" ? "Özel mesaj ve sesli arama." : activeChannel?.topic}</p>
           </div>
           <div className="topActions">
             <button onClick={() => setRightTab("friends")}>👥</button>
+            <button onClick={() => setRightTab("groups")}>💬 Grup</button>
+            <button onClick={() => setModal("joinServer")}>➕ Katıl</button>
             <button onClick={createInvite}>🔗 Davet</button>
+            <button onClick={installApp}>⬇️ Kur</button>
             <button onClick={() => setRightTab("members")}>Sunucu</button>
           </div>
         </header>
 
-        {rightTab === "friends" ? (
+        {rightTab === "dashboard" ? (
+          <DashboardPage
+            user={user}
+            servers={servers}
+            friends={friends}
+            groups={groups}
+            installApp={installApp}
+            isInstalled={isInstalled}
+            setRightTab={setRightTab}
+            setModal={setModal}
+            createInvite={createInvite}
+          />
+        ) : rightTab === "friends" ? (
           <FriendsPage
             friends={friends}
             userSearch={userSearch}
@@ -801,6 +976,10 @@ export default function App({ ioFactory }) {
             removeFriend={removeFriend}
             openDm={openDm}
           />
+        ) : rightTab === "groups" ? (
+          <GroupsPage groups={groups} openGroup={openGroup} setModal={setModal} />
+        ) : rightTab === "group" ? (
+          <GroupChatPage activeGroup={activeGroup} messages={groupMessages} draft={groupDraft} setDraft={setGroupDraft} send={sendGroupMessage} />
         ) : rightTab === "dm" ? (
           <DMPage
             dmUser={dmUser}
@@ -833,10 +1012,11 @@ export default function App({ ioFactory }) {
       </main>
 
       <aside className="rightPanel">
-        <div className="tabs"><button onClick={() => setRightTab("friends")}>Arkadaş</button><button onClick={() => setRightTab("members")}>Üye</button><button onClick={() => { setRightTab("audit"); loadAudit(); }}>Audit</button></div>
+        <div className="tabs"><button onClick={() => setRightTab("dashboard")}>Home</button><button onClick={() => setRightTab("friends")}>Arkadaş</button><button onClick={() => setRightTab("groups")}>Grup</button><button onClick={() => setRightTab("members")}>Üye</button><button onClick={() => { setRightTab("audit"); loadAudit(); }}>Audit</button></div>
         {rightTab === "members" && serverMembers.map(m => <div className="memberCard" key={m.id}><div className="avatar">{m.avatar}</div><div><b>{m.username}</b><p>{m.role} • {m.status}</p><small>{m.bio}</small></div></div>)}
         {rightTab === "audit" && audit.map(a => <div className="activity" key={a.id}><b>{time(a.created_at)}</b><p>{a.action}</p></div>)}
-        {(rightTab === "friends" || rightTab === "dm") && <FriendSidebar friends={friends} openDm={openDm} />}
+        {(rightTab === "friends" || rightTab === "dm" || rightTab === "dashboard") && <FriendSidebar friends={friends} openDm={openDm} />}
+        {(rightTab === "groups" || rightTab === "group" || rightTab === "dashboard") && <GroupSidebar groups={groups} openGroup={openGroup} />}
       </aside>
 
       <audio ref={persistentRemoteAudioRef} autoPlay playsInline />
@@ -870,10 +1050,103 @@ export default function App({ ioFactory }) {
       {modal === "server" && <ServerModal onClose={() => setModal(null)} onCreate={createServer} />}
       {modal === "channel" && <ChannelModal onClose={() => setModal(null)} onCreate={createChannel} />}
       {modal === "settings" && <SettingsModal user={user} setUser={setUser} onClose={() => setModal(null)} />}
+      {modal === "group" && <CreateGroupModal friends={friends} onClose={() => setModal(null)} onCreate={createGroup} />}
+      {modal === "joinServer" && <JoinServerModal onClose={() => setModal(null)} onJoin={joinServerByInput} />}
+      {modal === "installHelp" && <InstallHelpModal onClose={() => setModal(null)} />}
       {modal?.type === "inviteCreated" && <InviteCreated modal={modal} onClose={() => setModal(null)} />}
       {modal === "invitePreview" && invitePreview && <InvitePreview invite={invitePreview} user={user} onJoin={() => joinInvite(invitePreview.code)} onClose={() => setModal(null)} />}
     </div>
   );
+}
+
+
+
+function DashboardPage({ user, servers, friends, groups, installApp, isInstalled, setRightTab, setModal, createInvite }) {
+  return (
+    <section className="dashboardPage">
+      <div className="dashHero">
+        <div>
+          <p className="eyebrow">{APP_VERSION}</p>
+          <h1>Hoş geldin, {user.username}</h1>
+          <p>Discord tarzı ana panel: gruplar, sunucu katılma, davet, arama ve uygulama kurma tek yerde.</p>
+        </div>
+        <div className="dashAvatar">{user.avatar}</div>
+      </div>
+
+      <div className="statsGrid">
+        <button className="statCard" onClick={() => setRightTab("friends")}><b>{friends.friends.length}</b><span>Arkadaş</span></button>
+        <button className="statCard" onClick={() => setRightTab("groups")}><b>{groups.length}</b><span>Grup DM</span></button>
+        <button className="statCard" onClick={() => setRightTab("members")}><b>{servers.length}</b><span>Sunucu</span></button>
+        <button className="statCard" onClick={installApp}><b>⬇️</b><span>{isInstalled ? "Kuruldu" : "Uygulama Kur"}</span></button>
+      </div>
+
+      <div className="quickGrid">
+        <div className="panelCard bigPanel">
+          <h3>Hızlı İşlemler</h3>
+          <div className="quickActions">
+            <button onClick={() => setRightTab("friends")}>👥 Arkadaş bul</button>
+            <button onClick={() => setModal("group")}>💬 Grup oluştur</button>
+            <button onClick={() => setModal("joinServer")}>➕ Sunucuya katıl</button>
+            <button onClick={createInvite}>🔗 Davet linki oluştur</button>
+            <button onClick={installApp}>⬇️ Uygulama olarak kur</button>
+          </div>
+        </div>
+        <div className="panelCard bigPanel">
+          <h3>Aktif Özellikler</h3>
+          <p className="muted">✅ DM sesli konuşma</p>
+          <p className="muted">✅ Kamera / ekran paylaşımı butonları</p>
+          <p className="muted">✅ Grup DM oluşturma</p>
+          <p className="muted">✅ Sunucuya davetle katılma</p>
+          <p className="muted">✅ PWA uygulama kurma</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function GroupsPage({ groups, openGroup, setModal }) {
+  return (
+    <section className="friendsPage">
+      <div className="friendSearch">
+        <div>
+          <h2>Grup DM</h2>
+          <p className="muted">Arkadaşlarını seçerek özel grup sohbeti oluştur.</p>
+        </div>
+        <button onClick={() => setModal("group")}>Grup Oluştur</button>
+      </div>
+
+      <div className="groupGrid">
+        {groups.map(g => (
+          <button key={g.id} className="groupCard" onClick={() => openGroup(g)}>
+            <div className="groupIcon">💬</div>
+            <div><b>{g.name}</b><p>{g.member_count || 1} üye</p><small>{g.last_message || "Henüz mesaj yok"}</small></div>
+          </button>
+        ))}
+        {groups.length === 0 && <div className="panelCard"><h3>Grup yok</h3><p className="muted">Grup oluşturmak için üstteki butona bas.</p></div>}
+      </div>
+    </section>
+  );
+}
+
+function GroupChatPage({ activeGroup, messages, draft, setDraft, send }) {
+  if (!activeGroup) return <section className="friendsPage"><div className="panelCard"><h3>Grup seçilmedi</h3><p className="muted">Grup DM listesinden bir grup aç.</p></div></section>;
+
+  return (
+    <section className="chat">
+      <div className="messages">
+        <div className="channelHero"><div className="heroIcon">💬</div><div><h2>{activeGroup.name}</h2><p>{activeGroup.member_count || 1} üyeli grup sohbeti.</p></div></div>
+        {messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span></div><p>{m.content}</p></div></article>)}
+      </div>
+      <div className="composer"><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={`${activeGroup.name} grubuna mesaj yaz`} /><button onClick={send}>➤</button></div>
+    </section>
+  );
+}
+
+function GroupSidebar({ groups, openGroup }) {
+  return <>
+    <h3>Gruplar</h3>
+    {groups.slice(0, 8).map(g => <div className="memberCard" key={g.id}><div className="avatar">💬</div><div><b>{g.name}</b><p>{g.member_count || 1} üye</p><button onClick={() => openGroup(g)}>Aç</button></div></div>)}
+  </>;
 }
 
 
@@ -1002,6 +1275,56 @@ function Chat({ messages, user, activeChannel, draft, setDraft, sendMessage, rea
   return <section className="chat"><div className="messages"><div className="channelHero"><div className="heroIcon">{channelIcon(activeChannel?.type)}</div><div><h2>{activeChannel?.name}</h2><p>{activeChannel?.topic}</p></div></div>{messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span>{m.pinned && <span>📌</span>}</div><p>{m.content}</p><div className="reactions">{Object.entries(m.reactions || {}).map(([e,n]) => <button key={e} onClick={() => react(m,e)}>{e} {n}</button>)}</div><div className="messageActions"><button onClick={() => react(m,"👍")}>👍</button><button onClick={() => react(m,"🔥")}>🔥</button><button onClick={() => pin(m)}>Pin</button>{m.user_id===user.id && <button onClick={() => edit(m)}>Düzenle</button>}<button onClick={() => del(m)}>Sil</button></div></div></article>)}</div><div className="composer"><button>+</button><input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage()} placeholder="Mesaj yaz" /><button onClick={sendMessage}>➤</button></div></section>;
 }
 
+
+function CreateGroupModal({ friends, onClose, onCreate }) {
+  const [name, setName] = useState("Yeni Grup");
+  const [selected, setSelected] = useState([]);
+
+  function toggle(id) {
+    setSelected(old => old.includes(id) ? old.filter(x => x !== id) : [...old, id]);
+  }
+
+  return (
+    <Modal title="Grup DM Oluştur" onClose={onClose}>
+      <Field label="Grup adı" value={name} onChange={setName} />
+      <div className="selectList">
+        {friends.friends.map(f => (
+          <label key={f.other.id} className="checkRow">
+            <input type="checkbox" checked={selected.includes(f.other.id)} onChange={() => toggle(f.other.id)} />
+            <span>{f.other.username}</span>
+          </label>
+        ))}
+        {friends.friends.length === 0 && <p className="muted">Grup oluşturmak için önce arkadaş ekle.</p>}
+      </div>
+      <button className="primary" onClick={() => onCreate({ name, member_ids: selected })}>Grubu Oluştur</button>
+    </Modal>
+  );
+}
+
+function JoinServerModal({ onClose, onJoin }) {
+  const [value, setValue] = useState("");
+
+  return (
+    <Modal title="Sunucuya Katıl" onClose={onClose}>
+      <p className="muted">Davet kodunu veya tam davet linkini yapıştır.</p>
+      <Field label="Davet kodu / linki" value={value} onChange={setValue} />
+      <button className="primary" onClick={() => onJoin(value)}>Katıl</button>
+    </Modal>
+  );
+}
+
+function InstallHelpModal({ onClose }) {
+  return (
+    <Modal title="Uygulama Olarak Kur" onClose={onClose}>
+      <p className="muted">Tarayıcı otomatik kurulum penceresi vermediyse şu yolu kullan:</p>
+      <div className="inviteBox">PC Chrome/Edge: adres çubuğundaki yükle simgesi veya menü ⋮ → Sayfayı uygulama olarak yükle.</div>
+      <div className="inviteBox">Android Chrome: menü ⋮ → Ana ekrana ekle.</div>
+      <p className="muted">iPhone Safari: paylaş butonu → Ana Ekrana Ekle.</p>
+    </Modal>
+  );
+}
+
+
 function ServerModal({ onClose, onCreate }) {
   const [f, setF] = useState({ name: "", icon: "S", color: "#5865f2", description: "" });
   return <Modal title="Sunucu Oluştur" onClose={onClose}><Field label="Ad" value={f.name} onChange={v=>setF({...f,name:v})}/><Field label="İkon" value={f.icon} onChange={v=>setF({...f,icon:v})}/><Field label="Renk" type="color" value={f.color} onChange={v=>setF({...f,color:v})}/><Field label="Açıklama" value={f.description} onChange={v=>setF({...f,description:v})}/><button className="primary" onClick={()=>onCreate(f)}>Oluştur</button></Modal>;
@@ -1020,7 +1343,7 @@ function SettingsModal({ user, setUser, onClose }) {
 }
 
 function InviteCreated({ modal, onClose }) {
-  return <Modal title="Davet Linki" onClose={onClose}><p className="muted">Bu linki birine at. Açınca sunucu kartı görür ve katılabilir.</p><div className="inviteBox">{modal.url}</div><button className="primary" onClick={() => navigator.clipboard.writeText(modal.url)}>Kopyala</button></Modal>;
+  return <Modal title="Resmi Davet Linki" onClose={onClose}><p className="muted">Bu link Nexus Chat tarafından oluşturuldu. Birine atınca sunucu kartı açılır.</p><div className="officialInvite"><span>✅ Resmi Nexus daveti</span><b>{modal.invite.code}</b></div><div className="inviteBox">{modal.url}</div><button className="primary" onClick={() => navigator.clipboard.writeText(modal.url)}>Linki Kopyala</button></Modal>;
 }
 
 function InvitePreview({ invite, onJoin, onClose }) {

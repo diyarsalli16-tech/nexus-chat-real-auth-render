@@ -1,20 +1,21 @@
-# Nexus Chat V8.1 Black Screen Fix
+# Nexus Chat V9 Real Groups + Install + Media
 
-Bu sürüm V8 siyah ekran hatasını düzeltir.
+Bu sürüm V8.1'de görünmeyen özellikleri gerçekten görünür hale getirir:
 
-Sebep:
-- App.jsx içinde GlobalCallDock render ediliyordu ama component tanımlı değildi.
-- Sesli arama aktif olunca React hata verip ekranı karartıyordu.
-
-Düzeltme:
-- GlobalCallDock component'i eklendi.
-- DM dışına çıkınca altta arama paneli görünecek.
-- PWA dosyaları korunur.
+- Dashboard ekranında açık "Uygulama Kur" butonu
+- Grup DM listesi
+- Grup DM oluşturma modalı
+- Grup mesajlaşma
+- Sunucuya davet kodu/linkiyle katılma modalı
+- Kamera açma ve ekran paylaşımı için WebRTC renegotiation
+- Dashboard'da V9 sürüm etiketi
+- Service worker cache adı V9 yapıldı
 
 Kurulum:
-tar -xf nexus-chat-v8-1-black-screen-call-dock-fix.zip -C "%USERPROFILE%\Desktop"
-xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v8-1-black-screen-call-dock-fix\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
+cd /d "%USERPROFILE%\Downloads"
+tar -xf nexus-chat-v9-real-groups-install-media.zip -C "%USERPROFILE%\Desktop"
+xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v9-real-groups-install-media\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
 cd /d "%USERPROFILE%\Desktop\nexus-chat-real-auth-render"
 git add .
-git commit -m "fix black screen call dock"
+git commit -m "add real groups install button and media sharing"
 git push
