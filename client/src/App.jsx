@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const API = "";
-const APP_VERSION = "V9 Real Groups + Install + Media";
+const APP_VERSION = "V11 Media Audio Stability";
 const defaultRtcConfig = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -66,6 +66,16 @@ export default function App({ ioFactory }) {
   const [groupDraft, setGroupDraft] = useState("");
   const [installPrompt, setInstallPrompt] = useState(null);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [showRightPanel, setShowRightPanel] = useState(false);
+
+  const [groupVoice, setGroupVoice] = useState({
+    active: false,
+    groupId: null,
+    status: "Kapalı",
+    muted: false,
+    peers: []
+  });
+  const [groupRemoteStreams, setGroupRemoteStreams] = useState({});
 
   const [rightTab, setRightTab] = useState("dashboard");
   const [modal, setModal] = useState(null);
@@ -76,6 +86,9 @@ export default function App({ ioFactory }) {
 
   const [socket, setSocket] = useState(null);
   const socketRef = useRef(null);
+  const groupVoiceRef = useRef(null);
+  const groupVoicePcsRef = useRef(new Map());
+  const groupVoiceLocalStreamRef = useRef(null);
   const dmUserRef = useRef(null);
   const activeChannelIdRef = useRef(null);
   const activeGroupRef = useRef(null);
@@ -105,7 +118,11 @@ export default function App({ ioFactory }) {
   const audioContextRef = useRef(null);
   const micGainRef = useRef(null);
   const screenStreamRef = useRef(null);
+  const cameraStreamRef = useRef(null);
+  const cameraTrackRef = useRef(null);
+  const screenVideoTrackRef = useRef(null);
   const remoteStreamRef = useRef(null);
+  const remoteCombinedStreamRef = useRef(null);
   const rtcConfigRef = useRef(defaultRtcConfig);
 
   const activeServer = servers.find(s => s.id === activeServerId);
@@ -218,6 +235,7 @@ export default function App({ ioFactory }) {
   useEffect(() => { dmUserRef.current = dmUser; }, [dmUser]);
   useEffect(() => { activeChannelIdRef.current = activeChannelId; }, [activeChannelId]);
   useEffect(() => { activeGroupRef.current = activeGroup; }, [activeGroup]);
+  useEffect(() => { groupVoiceRef.current = groupVoice; }, [groupVoice]);
 
   useEffect(() => {
     if (!user || !token()) return;
@@ -253,6 +271,75 @@ export default function App({ ioFactory }) {
       if (current && current.id === msg.group_id) {
         setGroupMessages(old => old.some(m => m.id === msg.id) ? old : [...old, msg]);
       }
+    });
+
+    s.on("group:voice:users", async ({ groupId, users }) => {
+      const gv = groupVoiceRef.current;
+      if (!gv?.active || gv.groupId !== groupId) return;
+
+      setGroupVoice(c => ({
+        ...c,
+        peers: users.map(u => ({ ...u, status: "bağlanıyor" })),
+        status: users.length ? `${users.length} kişiyle bağlanılıyor` : "Ses odasındasın"
+      }));
+
+      for (const peer of users) {
+        await createGroupPeer(peer.socketId, peer, true, groupId);
+      }
+    });
+
+    s.on("group:voice:user-joined", ({ groupId, socketId, user }) => {
+      const gv = groupVoiceRef.current;
+      if (!gv?.active || gv.groupId !== groupId) return;
+
+      setGroupVoice(c => ({
+        ...c,
+        peers: c.peers.some(p => p.socketId === socketId) ? c.peers : [...c.peers, { socketId, ...user, status: "katıldı" }],
+        status: `${user.username} katıldı`
+      }));
+    });
+
+    s.on("group:voice:user-left", ({ groupId, socketId }) => {
+      const gv = groupVoiceRef.current;
+      if (gv?.groupId !== groupId) return;
+      closeGroupPeer(socketId);
+      setGroupVoice(c => ({
+        ...c,
+        peers: c.peers.filter(p => p.socketId !== socketId),
+        status: "Bir kullanıcı ayrıldı"
+      }));
+    });
+
+    s.on("group:rtc:offer", async ({ groupId, from, user, offer }) => {
+      const gv = groupVoiceRef.current;
+      if (!gv?.active || gv.groupId !== groupId) return;
+
+      const pc = await createGroupPeer(from, { socketId: from, ...user, status: "offer geldi" }, false, groupId);
+      await pc.setRemoteDescription(offer);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socketRef.current?.emit("group:rtc:answer", { to: from, groupId, answer });
+
+      setGroupVoice(c => ({ ...c, status: `${user.username} bağlandı` }));
+    });
+
+    s.on("group:rtc:answer", async ({ from, answer }) => {
+      const pc = groupVoicePcsRef.current.get(from);
+      if (pc && pc.signalingState !== "stable") {
+        await pc.setRemoteDescription(answer);
+      }
+      setGroupVoice(c => ({
+        ...c,
+        peers: c.peers.map(p => p.socketId === from ? { ...p, status: "bağlandı" } : p),
+        status: "Grup sesi bağlı"
+      }));
+    });
+
+    s.on("group:rtc:candidate", async ({ from, candidate }) => {
+      try {
+        const pc = groupVoicePcsRef.current.get(from);
+        if (pc && candidate) await pc.addIceCandidate(candidate);
+      } catch {}
     });
 
     s.on("dm:call:incoming", payload => {
@@ -335,23 +422,7 @@ export default function App({ ioFactory }) {
   useEffect(() => {
     if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
     if (compactLocalVideoRef.current) compactLocalVideoRef.current.srcObject = localStreamRef.current;
-
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = remoteStreamRef.current;
-      remoteVideoRef.current.play?.().catch(() => {});
-    }
-
-    if (compactRemoteVideoRef.current) {
-      compactRemoteVideoRef.current.srcObject = remoteStreamRef.current;
-      compactRemoteVideoRef.current.play?.().catch(() => {});
-    }
-
-    if (persistentRemoteAudioRef.current) {
-      persistentRemoteAudioRef.current.srcObject = remoteStreamRef.current;
-      persistentRemoteAudioRef.current.volume = call.remoteVolume / 100;
-      persistentRemoteAudioRef.current.play?.().catch(() => {});
-    }
-
+    bindRemoteMedia();
     if (screenVideoRef.current) screenVideoRef.current.srcObject = screenStreamRef.current;
   }, [call]);
 
@@ -488,6 +559,107 @@ export default function App({ ioFactory }) {
   }
 
 
+
+  async function getGroupVoiceStream() {
+    if (groupVoiceLocalStreamRef.current) return groupVoiceLocalStreamRef.current;
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("Mikrofon API yok. HTTPS linkiyle aç.");
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      video: false
+    });
+
+    groupVoiceLocalStreamRef.current = stream;
+    return stream;
+  }
+
+  async function createGroupPeer(socketId, userInfo, initiator, groupId) {
+    if (groupVoicePcsRef.current.has(socketId)) return groupVoicePcsRef.current.get(socketId);
+
+    const pc = new RTCPeerConnection(rtcConfigRef.current);
+    groupVoicePcsRef.current.set(socketId, pc);
+
+    const stream = await getGroupVoiceStream();
+    stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+    pc.onicecandidate = e => {
+      if (e.candidate) socketRef.current?.emit("group:rtc:candidate", { to: socketId, groupId, candidate: e.candidate });
+    };
+
+    pc.onconnectionstatechange = () => {
+      setGroupVoice(c => ({
+        ...c,
+        peers: c.peers.map(p => p.socketId === socketId ? { ...p, status: pc.connectionState } : p),
+        status: `Grup bağlantı: ${pc.connectionState}`
+      }));
+    };
+
+    pc.ontrack = e => {
+      setGroupRemoteStreams(old => ({ ...old, [socketId]: e.streams[0] }));
+      setGroupVoice(c => ({
+        ...c,
+        peers: c.peers.some(p => p.socketId === socketId) ? c.peers : [...c.peers, { socketId, ...userInfo, status: "ses geldi" }],
+        status: "Grup sesi geldi"
+      }));
+    };
+
+    setGroupVoice(c => ({
+      ...c,
+      peers: c.peers.some(p => p.socketId === socketId) ? c.peers : [...c.peers, { socketId, ...userInfo, status: "bağlanıyor" }]
+    }));
+
+    if (initiator) {
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socketRef.current?.emit("group:rtc:offer", { to: socketId, groupId, offer });
+    }
+
+    return pc;
+  }
+
+  function closeGroupPeer(socketId) {
+    const pc = groupVoicePcsRef.current.get(socketId);
+    pc?.close?.();
+    groupVoicePcsRef.current.delete(socketId);
+    setGroupRemoteStreams(old => {
+      const next = { ...old };
+      delete next[socketId];
+      return next;
+    });
+  }
+
+  async function joinGroupVoice() {
+    if (!activeGroup) return setError("Önce grup aç.");
+    try {
+      await getGroupVoiceStream();
+      const next = { active: true, groupId: activeGroup.id, status: "Grup sesine giriliyor", muted: false, peers: [] };
+      groupVoiceRef.current = next;
+      setGroupVoice(next);
+      socketRef.current?.emit("group:voice:join", { groupId: activeGroup.id });
+    } catch (err) {
+      setError(err.message || "Mikrofon izni verilmedi.");
+    }
+  }
+
+  function leaveGroupVoice() {
+    if (groupVoice.groupId) socketRef.current?.emit("group:voice:leave", { groupId: groupVoice.groupId });
+    for (const socketId of groupVoicePcsRef.current.keys()) closeGroupPeer(socketId);
+    groupVoiceLocalStreamRef.current?.getTracks().forEach(t => t.stop());
+    groupVoiceLocalStreamRef.current = null;
+    setGroupRemoteStreams({});
+    setGroupVoice({ active: false, groupId: null, status: "Kapalı", muted: false, peers: [] });
+  }
+
+  function toggleGroupMute() {
+    const next = !groupVoice.muted;
+    groupVoiceLocalStreamRef.current?.getAudioTracks().forEach(t => t.enabled = !next);
+    setGroupVoice(c => ({ ...c, muted: next }));
+  }
+
+
   async function installApp() {
     if (installPrompt) {
       try {
@@ -592,6 +764,90 @@ export default function App({ ioFactory }) {
     setAudit(data.audit);
   }
 
+
+  function bindRemoteMedia() {
+    const stream = remoteStreamRef.current;
+
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = stream;
+      remoteVideoRef.current.play?.().catch(() => {});
+    }
+
+    if (compactRemoteVideoRef.current) {
+      compactRemoteVideoRef.current.srcObject = stream;
+      compactRemoteVideoRef.current.play?.().catch(() => {});
+    }
+
+    if (persistentRemoteAudioRef.current) {
+      persistentRemoteAudioRef.current.srcObject = stream;
+      persistentRemoteAudioRef.current.volume = call.remoteVolume / 100;
+      persistentRemoteAudioRef.current.play?.().catch(() => {});
+    }
+  }
+
+  function addRemoteTrack(track) {
+    if (!remoteCombinedStreamRef.current) remoteCombinedStreamRef.current = new MediaStream();
+
+    const combined = remoteCombinedStreamRef.current;
+    const alreadyExists = combined.getTracks().some(t => t.id === track.id);
+
+    if (!alreadyExists) {
+      // Kritik düzeltme: Kamera/ekran gelince remote stream'i komple değiştirmiyoruz.
+      // Aynı stream içinde audio + video'yu koruyoruz. Yoksa video track gelince ses kayboluyordu.
+      if (track.kind === "video") {
+        combined.getVideoTracks().forEach(oldTrack => combined.removeTrack(oldTrack));
+      }
+
+      if (track.kind === "audio") {
+        combined.getAudioTracks().forEach(oldTrack => combined.removeTrack(oldTrack));
+      }
+
+      combined.addTrack(track);
+
+      track.onended = () => {
+        try { combined.removeTrack(track); } catch {}
+        bindRemoteMedia();
+      };
+    }
+
+    remoteStreamRef.current = combined;
+    bindRemoteMedia();
+  }
+
+  async function ensureOutgoingAudioTrack() {
+    if (!pcRef.current) return;
+
+    const stream = await getAudioStream();
+    const audioTrack = stream.getAudioTracks()[0];
+    if (!audioTrack) return;
+
+    audioTrack.enabled = !call.muted;
+
+    const audioSender = pcRef.current.getSenders().find(sender => sender.track?.kind === "audio");
+    if (audioSender) {
+      if (audioSender.track !== audioTrack) await audioSender.replaceTrack(audioTrack);
+    } else {
+      pcRef.current.addTrack(audioTrack, stream);
+    }
+  }
+
+  async function setOutgoingVideoTrack(track) {
+    if (!pcRef.current) return;
+
+    const videoSender = pcRef.current.getSenders().find(sender => sender.track?.kind === "video");
+
+    if (videoSender) {
+      await videoSender.replaceTrack(track || null);
+      return;
+    }
+
+    if (track) {
+      const stream = localStreamRef.current || new MediaStream([track]);
+      if (!stream.getTracks().some(t => t.id === track.id)) stream.addTrack(track);
+      pcRef.current.addTrack(track, stream);
+    }
+  }
+
   async function getAudioStream() {
     if (localStreamRef.current?.getAudioTracks().length) return localStreamRef.current;
 
@@ -658,20 +914,8 @@ export default function App({ ioFactory }) {
     };
 
     pc.ontrack = e => {
-      remoteStreamRef.current = e.streams[0];
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = e.streams[0];
-        remoteVideoRef.current.play?.().catch(() => {});
-      }
-      if (compactRemoteVideoRef.current) {
-        compactRemoteVideoRef.current.srcObject = e.streams[0];
-        compactRemoteVideoRef.current.play?.().catch(() => {});
-      }
-      if (persistentRemoteAudioRef.current) {
-        persistentRemoteAudioRef.current.srcObject = e.streams[0];
-        persistentRemoteAudioRef.current.play?.().catch(() => {});
-      }
-      setCall(c => ({ ...c, status: "Ses bağlantısı geldi" }));
+      addRemoteTrack(e.track);
+      setCall(c => ({ ...c, status: e.track.kind === "audio" ? "Ses bağlantısı geldi" : "Görüntü bağlantısı geldi" }));
     };
 
     const stream = localStreamRef.current || await getAudioStream();
@@ -743,32 +987,42 @@ export default function App({ ioFactory }) {
     const pc = pcRef.current;
     if (pc.signalingState !== "stable") return;
 
+    await ensureOutgoingAudioTrack();
+
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socketRef.current.emit("rtc:offer", { to: call.peerId, offer });
-    setCall(c => ({ ...c, status: "Medya güncellendi" }));
+    setCall(c => ({ ...c, status: "Medya güncellendi - ses korunuyor" }));
   }
 
 
   function toggleMute() {
-    const stream = localStreamRef.current;
-    if (!stream) return;
     const nextMuted = !call.muted;
-    stream.getAudioTracks().forEach(t => t.enabled = !nextMuted);
+    localStreamRef.current?.getAudioTracks().forEach(t => t.enabled = !nextMuted);
+    rawMicStreamRef.current?.getAudioTracks().forEach(t => t.enabled = !nextMuted);
     setCall(c => ({ ...c, muted: nextMuted }));
   }
 
   async function toggleCamera() {
     try {
+      await ensureOutgoingAudioTrack();
+
       if (call.camera) {
-        localStreamRef.current?.getVideoTracks().forEach(t => t.stop());
-        const audioTracks = localStreamRef.current?.getAudioTracks() || [];
-        localStreamRef.current = new MediaStream(audioTracks);
+        cameraTrackRef.current?.stop();
+        cameraStreamRef.current?.getTracks().forEach(t => t.stop());
 
-        const sender = pcRef.current?.getSenders().find(s => s.track?.kind === "video");
-        if (sender) await sender.replaceTrack(null);
+        if (localStreamRef.current && cameraTrackRef.current) {
+          try { localStreamRef.current.removeTrack(cameraTrackRef.current); } catch {}
+        }
 
-        setCall(c => ({ ...c, camera: false, status: "Kamera kapandı" }));
+        cameraTrackRef.current = null;
+        cameraStreamRef.current = null;
+
+        // Ekran paylaşımı açıksa video olarak ekran kalsın. Değilse video kapansın.
+        await setOutgoingVideoTrack(screenVideoTrackRef.current || null);
+        await ensureOutgoingAudioTrack();
+
+        setCall(c => ({ ...c, camera: false, status: "Kamera kapandı - ses korundu" }));
         await renegotiate();
         return;
       }
@@ -780,16 +1034,18 @@ export default function App({ ioFactory }) {
       const videoStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
       const videoTrack = videoStream.getVideoTracks()[0];
       const base = localStreamRef.current || await getAudioStream();
-      base.addTrack(videoTrack);
 
-      if (pcRef.current) {
-        const sender = pcRef.current.getSenders().find(s => s.track?.kind === "video");
-        if (sender) await sender.replaceTrack(videoTrack);
-        else pcRef.current.addTrack(videoTrack, base);
-      }
+      if (!base.getTracks().some(t => t.id === videoTrack.id)) base.addTrack(videoTrack);
 
+      cameraStreamRef.current = videoStream;
+      cameraTrackRef.current = videoTrack;
       localStreamRef.current = base;
-      setCall(c => ({ ...c, camera: true, status: "Kamera açıldı" }));
+
+      // Ekran paylaşımı yoksa kamerayı gönder. Ekran açıksa ses korunur, video olarak ekran devam eder.
+      if (!screenVideoTrackRef.current) await setOutgoingVideoTrack(videoTrack);
+      await ensureOutgoingAudioTrack();
+
+      setCall(c => ({ ...c, camera: true, status: "Kamera açıldı - ses korundu" }));
       await renegotiate();
     } catch (err) {
       setError(err.message || "Kamera izni verilmedi veya kamera bulunamadı.");
@@ -798,15 +1054,19 @@ export default function App({ ioFactory }) {
 
   async function toggleScreen() {
     try {
+      await ensureOutgoingAudioTrack();
+
       if (call.screen) {
+        screenVideoTrackRef.current?.stop();
         screenStreamRef.current?.getTracks().forEach(t => t.stop());
         screenStreamRef.current = null;
+        screenVideoTrackRef.current = null;
 
-        const cameraTrack = localStreamRef.current?.getVideoTracks?.()[0] || null;
-        const sender = pcRef.current?.getSenders().find(s => s.track?.kind === "video");
-        if (sender) await sender.replaceTrack(cameraTrack);
+        // Ekranı kapatınca kamera açıksa kameraya geri dön, değilse video kapansın. Ses asla değişmez.
+        await setOutgoingVideoTrack(cameraTrackRef.current || null);
+        await ensureOutgoingAudioTrack();
 
-        setCall(c => ({ ...c, screen: false, status: "Ekran paylaşımı kapandı" }));
+        setCall(c => ({ ...c, screen: false, status: "Ekran paylaşımı kapandı - ses korundu" }));
         await renegotiate();
         return;
       }
@@ -815,23 +1075,27 @@ export default function App({ ioFactory }) {
         throw new Error("Tarayıcı ekran paylaşımı API'sini vermiyor.");
       }
 
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-      screenStreamRef.current = stream;
-      setCall(c => ({ ...c, screen: true, status: "Ekran paylaşımı açıldı" }));
-
+      // Kritik düzeltme: ekran paylaşırken audio:false. Böylece sistem/tab audio mikrofonun yerine geçmez.
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
       const screenTrack = stream.getVideoTracks()[0];
+
+      screenStreamRef.current = stream;
+      screenVideoTrackRef.current = screenTrack;
+
       screenTrack.onended = async () => {
         screenStreamRef.current = null;
-        setCall(c => ({ ...c, screen: false, status: "Ekran paylaşımı kapandı" }));
+        screenVideoTrackRef.current = null;
+        await setOutgoingVideoTrack(cameraTrackRef.current || null);
+        await ensureOutgoingAudioTrack();
+        setCall(c => ({ ...c, screen: false, status: "Ekran paylaşımı kapandı - ses korundu" }));
         await renegotiate();
       };
 
-      if (pcRef.current && screenTrack) {
-        const sender = pcRef.current.getSenders().find(s => s.track?.kind === "video");
-        if (sender) await sender.replaceTrack(screenTrack);
-        else pcRef.current.addTrack(screenTrack, stream);
-        await renegotiate();
-      }
+      await setOutgoingVideoTrack(screenTrack);
+      await ensureOutgoingAudioTrack();
+
+      setCall(c => ({ ...c, screen: true, status: "Ekran paylaşımı açıldı - ses korundu" }));
+      await renegotiate();
     } catch (err) {
       setError(err.message || "Ekran paylaşımı iptal edildi.");
     }
@@ -843,13 +1107,18 @@ export default function App({ ioFactory }) {
     localStreamRef.current?.getTracks().forEach(t => t.stop());
     rawMicStreamRef.current?.getTracks().forEach(t => t.stop());
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
+    cameraStreamRef.current?.getTracks().forEach(t => t.stop());
     pcRef.current?.close();
     audioContextRef.current?.close?.();
 
     localStreamRef.current = null;
     rawMicStreamRef.current = null;
     screenStreamRef.current = null;
+    cameraStreamRef.current = null;
+    cameraTrackRef.current = null;
+    screenVideoTrackRef.current = null;
     remoteStreamRef.current = null;
+    remoteCombinedStreamRef.current = null;
     pcRef.current = null;
     audioContextRef.current = null;
     micGainRef.current = null;
@@ -891,7 +1160,7 @@ export default function App({ ioFactory }) {
   }
 
   return (
-    <div className="app">
+    <div className={`app ${showRightPanel ? "rightOpen" : "rightClosed"}`}>
       <aside className="serverRail">
         <button className={`serverIcon ${rightTab === "dashboard" ? "active" : ""}`} onClick={() => setRightTab("dashboard")}>🏠</button>
         <button className={`serverIcon ${rightTab === "groups" || rightTab === "group" ? "active" : ""}`} onClick={() => setRightTab("groups")}>💬</button>
@@ -947,6 +1216,7 @@ export default function App({ ioFactory }) {
             <button onClick={() => setModal("joinServer")}>➕ Katıl</button>
             <button onClick={createInvite}>🔗 Davet</button>
             <button onClick={installApp}>⬇️ Kur</button>
+            <button onClick={() => setShowRightPanel(v => !v)}>{showRightPanel ? "Paneli Gizle" : "Panel Aç"}</button>
             <button onClick={() => setRightTab("members")}>Sunucu</button>
           </div>
         </header>
@@ -979,7 +1249,18 @@ export default function App({ ioFactory }) {
         ) : rightTab === "groups" ? (
           <GroupsPage groups={groups} openGroup={openGroup} setModal={setModal} />
         ) : rightTab === "group" ? (
-          <GroupChatPage activeGroup={activeGroup} messages={groupMessages} draft={groupDraft} setDraft={setGroupDraft} send={sendGroupMessage} />
+          <GroupChatPage
+            activeGroup={activeGroup}
+            messages={groupMessages}
+            draft={groupDraft}
+            setDraft={setGroupDraft}
+            send={sendGroupMessage}
+            groupVoice={groupVoice}
+            groupRemoteStreams={groupRemoteStreams}
+            joinGroupVoice={joinGroupVoice}
+            leaveGroupVoice={leaveGroupVoice}
+            toggleGroupMute={toggleGroupMute}
+          />
         ) : rightTab === "dm" ? (
           <DMPage
             dmUser={dmUser}
@@ -1020,6 +1301,17 @@ export default function App({ ioFactory }) {
       </aside>
 
       <audio ref={persistentRemoteAudioRef} autoPlay playsInline />
+
+      {groupVoice.active && (
+        <GroupVoiceDock
+          groupVoice={groupVoice}
+          groupRemoteStreams={groupRemoteStreams}
+          activeGroup={activeGroup}
+          setRightTab={setRightTab}
+          toggleGroupMute={toggleGroupMute}
+          leaveGroupVoice={leaveGroupVoice}
+        />
+      )}
 
       {call.active && (
         <GlobalCallDock
@@ -1128,17 +1420,69 @@ function GroupsPage({ groups, openGroup, setModal }) {
   );
 }
 
-function GroupChatPage({ activeGroup, messages, draft, setDraft, send }) {
+function GroupChatPage({ activeGroup, messages, draft, setDraft, send, groupVoice, groupRemoteStreams, joinGroupVoice, leaveGroupVoice, toggleGroupMute }) {
   if (!activeGroup) return <section className="friendsPage"><div className="panelCard"><h3>Grup seçilmedi</h3><p className="muted">Grup DM listesinden bir grup aç.</p></div></section>;
+
+  const inThisVoice = groupVoice.active && groupVoice.groupId === activeGroup.id;
 
   return (
     <section className="chat">
       <div className="messages">
-        <div className="channelHero"><div className="heroIcon">💬</div><div><h2>{activeGroup.name}</h2><p>{activeGroup.member_count || 1} üyeli grup sohbeti.</p></div></div>
+        <div className="channelHero groupHero">
+          <div className="heroIcon">💬</div>
+          <div>
+            <h2>{activeGroup.name}</h2>
+            <p>{activeGroup.member_count || 1} üyeli grup sohbeti.</p>
+          </div>
+          <div className="groupVoiceActions">
+            {!inThisVoice ? <button onClick={joinGroupVoice}>🔊 Grup Sesine Katıl</button> : <>
+              <button onClick={toggleGroupMute}>{groupVoice.muted ? "Mic Aç" : "Mic Kapat"}</button>
+              <button className="danger" onClick={leaveGroupVoice}>Sesten Çık</button>
+            </>}
+          </div>
+        </div>
+
+        {inThisVoice && (
+          <div className="groupVoicePanel">
+            <h3>🔊 Grup Sesli Sohbet</h3>
+            <p>{groupVoice.status}</p>
+            <div className="voiceParticipants">
+              <div className="voicePill">Sen {groupVoice.muted ? "• susturuldu" : "• konuşuyor"}</div>
+              {groupVoice.peers.map(p => <div className="voicePill" key={p.socketId}>{p.username || "Kullanıcı"} • {p.status}</div>)}
+            </div>
+            {Object.entries(groupRemoteStreams).map(([id, stream]) => <RemoteAudio key={id} stream={stream} />)}
+          </div>
+        )}
+
         {messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span></div><p>{m.content}</p></div></article>)}
       </div>
       <div className="composer"><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={`${activeGroup.name} grubuna mesaj yaz`} /><button onClick={send}>➤</button></div>
     </section>
+  );
+}
+
+function RemoteAudio({ stream }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.srcObject = stream;
+      ref.current.play?.().catch(() => {});
+    }
+  }, [stream]);
+  return <audio ref={ref} autoPlay playsInline />;
+}
+
+function GroupVoiceDock({ groupVoice, groupRemoteStreams, activeGroup, setRightTab, toggleGroupMute, leaveGroupVoice }) {
+  const count = Object.keys(groupRemoteStreams || {}).length + 1;
+  return (
+    <div className="groupVoiceDock">
+      <div><b>🔊 Grup sesi aktif</b><p>{activeGroup?.name || "Grup"} • {count} kişi • {groupVoice.status}</p></div>
+      <div className="dockButtons">
+        <button onClick={() => setRightTab("group")}>Gruba Dön</button>
+        <button onClick={toggleGroupMute}>{groupVoice.muted ? "Mic Aç" : "Mic Kapat"}</button>
+        <button className="danger" onClick={leaveGroupVoice}>Çık</button>
+      </div>
+    </div>
   );
 }
 

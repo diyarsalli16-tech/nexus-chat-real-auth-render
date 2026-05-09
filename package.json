@@ -1,6 +1,6 @@
 {
-  "name": "nexus-chat-v9-real-groups-install-media",
-  "version": "9.0.0",
+  "name": "nexus-chat-v11-media-audio-stability",
+  "version": "11.0.0",
   "private": true,
   "type": "module",
   "scripts": {

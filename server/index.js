@@ -66,6 +66,81 @@ io.on("connection", (socket) => {
   socket.on("channel:join", (channelId) => socket.join(`channel:${channelId}`));
   socket.on("group:join", (groupId) => socket.join(`group:${groupId}`));
 
+  socket.on("group:voice:join", async ({ groupId }) => {
+    const room = `groupvoice:${groupId}`;
+    const existing = await io.in(room).fetchSockets();
+
+    socket.join(room);
+
+    socket.emit("group:voice:users", {
+      groupId,
+      users: existing
+        .filter(s => s.id !== socket.id)
+        .map(s => ({
+          socketId: s.id,
+          id: s.user?.id,
+          username: s.user?.username,
+          avatar: s.user?.avatar
+        }))
+    });
+
+    socket.to(room).emit("group:voice:user-joined", {
+      groupId,
+      socketId: socket.id,
+      user: socket.user
+    });
+  });
+
+  socket.on("group:voice:leave", ({ groupId }) => {
+    const room = `groupvoice:${groupId}`;
+    socket.leave(room);
+    socket.to(room).emit("group:voice:user-left", {
+      groupId,
+      socketId: socket.id,
+      userId: socket.user.id
+    });
+  });
+
+  socket.on("group:rtc:offer", ({ to, groupId, offer }) => {
+    io.to(to).emit("group:rtc:offer", {
+      groupId,
+      from: socket.id,
+      user: socket.user,
+      offer
+    });
+  });
+
+  socket.on("group:rtc:answer", ({ to, groupId, answer }) => {
+    io.to(to).emit("group:rtc:answer", {
+      groupId,
+      from: socket.id,
+      user: socket.user,
+      answer
+    });
+  });
+
+  socket.on("group:rtc:candidate", ({ to, groupId, candidate }) => {
+    io.to(to).emit("group:rtc:candidate", {
+      groupId,
+      from: socket.id,
+      user: socket.user,
+      candidate
+    });
+  });
+
+  socket.on("disconnecting", () => {
+    for (const room of socket.rooms) {
+      if (room.startsWith("groupvoice:")) {
+        const groupId = Number(room.replace("groupvoice:", ""));
+        socket.to(room).emit("group:voice:user-left", {
+          groupId,
+          socketId: socket.id,
+          userId: socket.user.id
+        });
+      }
+    }
+  });
+
   socket.on("dm:call:invite", ({ to }) => {
     io.to(`user:${to}`).emit("dm:call:incoming", {
       from: socket.user.id,

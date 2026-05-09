@@ -91,3 +91,40 @@ body.pwa-standalone .globalCallDock{bottom:28px}
   .dashHero{padding:20px;align-items:flex-start}.dashHero h1{font-size:24px}.dashAvatar{width:72px;height:72px;font-size:32px;border-radius:24px}
   .statsGrid,.quickGrid,.groupGrid,.quickActions{grid-template-columns:1fr}
 }
+
+
+/* V10 group voice + clean right panel */
+.rightClosed .rightPanel{display:none}
+.rightClosed .globalCallDock{right:18px}
+.groupHero{align-items:center}
+.groupVoiceActions{margin-left:auto;display:flex;gap:10px;flex-wrap:wrap}
+.groupVoiceActions button{height:44px;border-radius:16px;background:linear-gradient(135deg,#5865f2,#7c3aed);color:#fff;font-weight:950;padding:0 14px}
+.groupVoicePanel{padding:18px;border-radius:24px;background:rgba(88,101,242,.1);border:1px solid rgba(129,140,248,.22);margin-bottom:16px}
+.groupVoicePanel h3{margin:0 0 6px}
+.groupVoicePanel p{margin:0 0 12px;color:#94a3b8}
+.voiceParticipants{display:flex;flex-wrap:wrap;gap:8px}
+.voicePill{padding:10px 12px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);color:#dbeafe;font-weight:850}
+.groupVoiceDock{
+  position:fixed;
+  left:112px;
+  right:18px;
+  bottom:108px;
+  z-index:66;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  padding:14px;
+  border-radius:24px;
+  background:rgba(16,24,39,.96);
+  border:1px solid rgba(129,140,248,.24);
+  box-shadow:0 22px 70px rgba(0,0,0,.38);
+  backdrop-filter:blur(18px);
+}
+.rightOpen .groupVoiceDock{right:408px}
+.groupVoiceDock b{display:block;color:#fff}.groupVoiceDock p{margin:4px 0 0;color:#94a3b8;font-size:12px}
+@media(max-width:1120px){.rightOpen .groupVoiceDock{right:18px}}
+@media(max-width:760px){
+  .groupVoiceDock{left:72px;right:10px;bottom:210px;align-items:flex-start;flex-direction:column}
+  .groupVoiceActions{margin-left:0;width:100%}.groupVoiceActions button{flex:1}
+}
