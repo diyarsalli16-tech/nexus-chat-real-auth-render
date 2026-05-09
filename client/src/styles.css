@@ -128,3 +128,36 @@ body.pwa-standalone .globalCallDock{bottom:28px}
   .groupVoiceDock{left:72px;right:10px;bottom:210px;align-items:flex-start;flex-direction:column}
   .groupVoiceActions{margin-left:0;width:100%}.groupVoiceActions button{flex:1}
 }
+
+
+/* V12 mentions, sounds, notifications, bigger camera, animations */
+.mentionTag{
+  display:inline-block;
+  padding:1px 6px;
+  margin:0 2px;
+  border-radius:8px;
+  background:rgba(88,101,242,.28);
+  color:#c7d2fe;
+  font-weight:950;
+  box-shadow:0 0 0 1px rgba(129,140,248,.22) inset;
+}
+.message{animation:messagePop .22s ease-out both}
+@keyframes messagePop{from{opacity:0;transform:translateY(8px) scale(.99)}to{opacity:1;transform:translateY(0) scale(1)}}
+.incomingCall{animation:ringPulse 1.1s infinite ease-in-out, slideUp .28s ease-out both}
+@keyframes ringPulse{0%,100%{box-shadow:0 22px 70px rgba(0,0,0,.35),0 0 0 0 rgba(88,101,242,.35)}50%{box-shadow:0 22px 70px rgba(0,0,0,.35),0 0 0 10px rgba(88,101,242,0)}}
+@keyframes slideUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+.modal,.panelCard,.dashHero,.callPanel,.groupVoicePanel,.globalCallDock,.groupVoiceDock{animation:softAppear .22s ease-out both}
+@keyframes softAppear{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.dmLayout{grid-template-columns:minmax(0,1fr) 560px}
+.callPanel{background:linear-gradient(180deg,rgba(15,23,42,.92),rgba(6,10,20,.92))}
+.callPanel .videoTile{height:300px}
+.callPanel .videoTile.small{height:190px}
+.videoTile{box-shadow:0 18px 50px rgba(0,0,0,.24)}
+.globalCallDock .dockVideo{width:170px;height:98px}
+.globalCallDock .dockVideo.small{width:122px;height:98px}
+.statsGrid{grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}
+.mentionStat{background:linear-gradient(135deg,rgba(245,158,11,.18),rgba(88,101,242,.12))}
+.topActions button,.quickActions button,.statCard,.serverBoost,.channelBtn{transition:transform .14s ease, background .14s ease, border-color .14s ease}
+.topActions button:hover,.quickActions button:hover,.statCard:hover,.serverBoost:hover,.channelBtn:hover{transform:translateY(-1px)}
+@media(max-width:1120px){.dmLayout{grid-template-columns:1fr}.callPanel .videoTile{height:240px}}
+@media(max-width:760px){.callPanel .videoTile{height:210px}.globalCallDock .dockVideo{width:100%;height:120px}.globalCallDock .dockVideo.small{width:100%;height:110px}}

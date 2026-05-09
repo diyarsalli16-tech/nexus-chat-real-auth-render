@@ -1,20 +1,21 @@
-# Nexus Chat V11 Media Audio Stability
+# Nexus Chat V12 Mentions + Sounds + Notifications
 
-Bu sürüm kamera/ekran açınca DM sesinin kaybolmasını düzeltir.
-
-Düzeltmeler:
-- Remote audio ve video artık tek stream gelince birbirini ezmiyor.
-- Ekran paylaşımı audio:false ile açılır; mikrofonun yerine sistem sesi geçmez.
-- Kamera/ekran açma-kapama öncesi ve sonrası outgoing audio sender tekrar sabitlenir.
-- Kamera kapanınca ses track'i korunur.
-- Ekran kapanınca kamera varsa kameraya, yoksa sadece sese döner.
-- Ekran/kamera kapandıktan sonra sesin tamamen gitmesi bug'ı giderildi.
+Bu sürüm:
+- @username etiketlerini mesaj içinde renklendirir.
+- @kullanici ile etiketlenince bildirim sesi çalar.
+- Bildirim izni verilirse Windows/Chrome masaüstü bildirimi gösterir.
+- Mention sayacı ile başlıkta (1), (2), (3) gösterir.
+- Gelen arama sesi/ringtone ekler.
+- Gelen arama masaüstü bildirimi gösterir.
+- Mesaj ve panel animasyonları ekler.
+- Kamera/video alanını büyütür.
+- Service worker cache V12 olur.
 
 Kurulum:
 cd /d "%USERPROFILE%\Downloads"
-tar -xf nexus-chat-v11-media-audio-stability.zip -C "%USERPROFILE%\Desktop"
-xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v11-media-audio-stability\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
+tar -xf nexus-chat-v12-mentions-sounds-notifications.zip -C "%USERPROFILE%\Desktop"
+xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v12-mentions-sounds-notifications\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
 cd /d "%USERPROFILE%\Desktop\nexus-chat-real-auth-render"
 git add .
-git commit -m "fix audio after camera and screen share"
+git commit -m "add mentions sounds notifications and larger camera"
 git push

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const API = "";
-const APP_VERSION = "V11 Media Audio Stability";
+const APP_VERSION = "V12 Mentions + Sounds + Notifications";
 const defaultRtcConfig = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -66,6 +66,10 @@ export default function App({ ioFactory }) {
   const [groupDraft, setGroupDraft] = useState("");
   const [installPrompt, setInstallPrompt] = useState(null);
   const [isInstalled, setIsInstalled] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState(
+    typeof Notification !== "undefined" ? Notification.permission : "unsupported"
+  );
+  const [mentionCount, setMentionCount] = useState(0);
   const [showRightPanel, setShowRightPanel] = useState(false);
 
   const [groupVoice, setGroupVoice] = useState({
@@ -121,6 +125,8 @@ export default function App({ ioFactory }) {
   const cameraStreamRef = useRef(null);
   const cameraTrackRef = useRef(null);
   const screenVideoTrackRef = useRef(null);
+  const uiAudioCtxRef = useRef(null);
+  const ringtoneTimerRef = useRef(null);
   const remoteStreamRef = useRef(null);
   const remoteCombinedStreamRef = useRef(null);
   const rtcConfigRef = useRef(defaultRtcConfig);
@@ -144,6 +150,129 @@ export default function App({ ioFactory }) {
     window.clearTimeout(window.__toast);
     window.__toast = window.setTimeout(() => setToast("Hazır"), 2400);
   }
+
+
+  function ensureUiAudio() {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return null;
+    if (!uiAudioCtxRef.current) uiAudioCtxRef.current = new AudioCtx();
+    if (uiAudioCtxRef.current.state === "suspended") uiAudioCtxRef.current.resume?.();
+    return uiAudioCtxRef.current;
+  }
+
+  function playTone(freq = 880, duration = 0.12, type = "sine", volume = 0.08) {
+    try {
+      const ctx = ensureUiAudio();
+      if (!ctx) return;
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+      oscillator.type = type;
+      oscillator.frequency.setValueAtTime(freq, ctx.currentTime);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(volume, ctx.currentTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+      oscillator.stop(ctx.currentTime + duration + 0.02);
+    } catch {}
+  }
+
+  function playMessageSound() {
+    playTone(640, 0.08, "triangle", 0.045);
+    window.setTimeout(() => playTone(880, 0.08, "triangle", 0.04), 90);
+  }
+
+  function playMentionSound() {
+    playTone(1040, 0.12, "sine", 0.075);
+    window.setTimeout(() => playTone(1320, 0.13, "sine", 0.07), 120);
+    window.setTimeout(() => playTone(1560, 0.16, "sine", 0.065), 250);
+  }
+
+  function startRingtone() {
+    stopRingtone();
+    playTone(740, 0.18, "sine", 0.08);
+    window.setTimeout(() => playTone(980, 0.22, "sine", 0.08), 220);
+    ringtoneTimerRef.current = window.setInterval(() => {
+      playTone(740, 0.18, "sine", 0.08);
+      window.setTimeout(() => playTone(980, 0.22, "sine", 0.08), 220);
+    }, 1400);
+  }
+
+  function stopRingtone() {
+    if (ringtoneTimerRef.current) {
+      window.clearInterval(ringtoneTimerRef.current);
+      ringtoneTimerRef.current = null;
+    }
+  }
+
+  function containsMention(content, username) {
+    if (!content || !username) return false;
+    const escaped = username.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|\\s)@${escaped}(?=$|\\s|[.,!?:;])`, "i").test(content);
+  }
+
+  function notifyDesktop(title, body, tag = "nexus") {
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission !== "granted") return;
+    try {
+      const n = new Notification(title, {
+        body,
+        tag,
+        silent: true,
+        icon: "/icon-192.svg",
+        badge: "/icon-192.svg"
+      });
+      n.onclick = () => {
+        window.focus();
+        n.close();
+      };
+    } catch {}
+  }
+
+  function handleIncomingText({ content, fromName, senderId, context = "message" }) {
+    if (!content || senderId === user?.id) return;
+    const mentioned = containsMention(content, user?.username);
+    const appNotFocused = document.hidden || !document.hasFocus();
+
+    if (mentioned) {
+      setMentionCount(c => c + 1);
+      playMentionSound();
+      notifyDesktop("Nexus Chat • Etiketlendin", `${fromName}: ${content}`, `mention-${Date.now()}`);
+      show(`@${user?.username} etiketi geldi`);
+      return;
+    }
+
+    if (appNotFocused) {
+      playMessageSound();
+      notifyDesktop("Nexus Chat", `${fromName}: ${content}`, `msg-${context}`);
+    }
+  }
+
+  async function enableNotifications() {
+    try {
+      ensureUiAudio();
+      playMessageSound();
+
+      if (typeof Notification === "undefined") {
+        setNotificationPermission("unsupported");
+        setError("Bu tarayıcı masaüstü bildirimini desteklemiyor.");
+        return;
+      }
+
+      const result = await Notification.requestPermission();
+      setNotificationPermission(result);
+      if (result === "granted") {
+        notifyDesktop("Nexus Chat", "Bildirimler açıldı. Etiket gelince uyarı alacaksın.", "nexus-ready");
+        show("Bildirimler açıldı");
+      } else {
+        setError("Bildirim izni verilmedi.");
+      }
+    } catch (err) {
+      setError(err.message || "Bildirim açılırken hata oldu.");
+    }
+  }
+
 
   async function loadBootstrap() {
     const data = await api("/api/bootstrap");
@@ -228,6 +357,22 @@ export default function App({ ioFactory }) {
   }, []);
 
   useEffect(() => {
+    document.title = mentionCount > 0 ? `(${mentionCount}) Nexus Chat` : "Nexus Chat";
+  }, [mentionCount]);
+
+  useEffect(() => {
+    const clearBadge = () => {
+      if (!document.hidden) setMentionCount(0);
+    };
+    document.addEventListener("visibilitychange", clearBadge);
+    window.addEventListener("focus", clearBadge);
+    return () => {
+      document.removeEventListener("visibilitychange", clearBadge);
+      window.removeEventListener("focus", clearBadge);
+    };
+  }, []);
+
+  useEffect(() => {
     if (token()) loadBootstrap().catch(() => localStorage.removeItem("nexus_token"));
     handleInviteFromUrl();
   }, []);
@@ -244,7 +389,10 @@ export default function App({ ioFactory }) {
     socketRef.current = s;
 
     s.on("connect", () => show("Canlı bağlantı açıldı"));
-    s.on("message:new", msg => setMessages(old => old.some(m => m.id === msg.id) ? old : [...old, msg]));
+    s.on("message:new", msg => {
+      setMessages(old => old.some(m => m.id === msg.id) ? old : [...old, msg]);
+      handleIncomingText({ content: msg.content, fromName: msg.username, senderId: msg.user_id, context: "channel" });
+    });
     s.on("message:update", msg => setMessages(old => old.map(m => m.id === msg.id ? { ...m, ...msg } : m)));
     s.on("message:delete", ({ id }) => setMessages(old => old.filter(m => m.id !== id)));
     s.on("reaction:update", () => activeChannelIdRef.current && loadMessages(activeChannelIdRef.current, false));
@@ -258,6 +406,7 @@ export default function App({ ioFactory }) {
       if (currentDm && (msg.sender_id === currentDm.id || msg.receiver_id === currentDm.id)) {
         setDmMessages(old => old.some(m => m.id === msg.id) ? old : [...old, msg]);
       }
+      handleIncomingText({ content: msg.content, fromName: msg.username, senderId: msg.sender_id, context: "dm" });
       show("Yeni DM");
     });
 
@@ -271,6 +420,7 @@ export default function App({ ioFactory }) {
       if (current && current.id === msg.group_id) {
         setGroupMessages(old => old.some(m => m.id === msg.id) ? old : [...old, msg]);
       }
+      handleIncomingText({ content: msg.content, fromName: msg.username, senderId: msg.sender_id, context: "group" });
     });
 
     s.on("group:voice:users", async ({ groupId, users }) => {
@@ -343,12 +493,16 @@ export default function App({ ioFactory }) {
     });
 
     s.on("dm:call:incoming", payload => {
+      startRingtone();
+      playMentionSound();
+      notifyDesktop("Nexus Chat • Gelen arama", `${payload.username} seni arıyor`, "incoming-call");
       setCall(c => ({ ...c, incoming: payload, status: `${payload.username} arıyor` }));
       setRightTab("dm");
     });
 
     s.on("dm:call:accepted", async ({ from }) => {
       try {
+        stopRingtone();
         setCall(c => ({ ...c, status: "Arama kabul edildi" }));
         await createOffer(from);
       } catch (err) {
@@ -359,11 +513,13 @@ export default function App({ ioFactory }) {
     });
 
     s.on("dm:call:rejected", () => {
+      stopRingtone();
       endCall(false);
       show("Arama reddedildi");
     });
 
     s.on("dm:call:ended", () => {
+      stopRingtone();
       endCall(false);
       show("Arama kapandı");
     });
@@ -946,6 +1102,7 @@ export default function App({ ioFactory }) {
   }
 
   async function acceptIncomingCall() {
+    stopRingtone();
     if (!call.incoming || !socketRef.current) {
       setError("Canlı bağlantı hazır değil. Sayfayı yenile.");
       return;
@@ -968,6 +1125,7 @@ export default function App({ ioFactory }) {
   }
 
   function rejectIncomingCall() {
+    stopRingtone();
     if (call.incoming && socketRef.current) socketRef.current.emit("dm:call:reject", { to: call.incoming.from });
     setCall(c => ({ ...c, incoming: null, status: "Kapalı" }));
   }
@@ -1102,6 +1260,7 @@ export default function App({ ioFactory }) {
   }
 
   function endCall(sendEvent = true) {
+    stopRingtone();
     if (sendEvent && call.peerId && socketRef.current) socketRef.current.emit("dm:call:end", { to: call.peerId });
 
     localStreamRef.current?.getTracks().forEach(t => t.stop());
@@ -1215,6 +1374,7 @@ export default function App({ ioFactory }) {
             <button onClick={() => setRightTab("groups")}>💬 Grup</button>
             <button onClick={() => setModal("joinServer")}>➕ Katıl</button>
             <button onClick={createInvite}>🔗 Davet</button>
+            <button onClick={enableNotifications}>🔔 Bildirim</button>
             <button onClick={installApp}>⬇️ Kur</button>
             <button onClick={() => setShowRightPanel(v => !v)}>{showRightPanel ? "Paneli Gizle" : "Panel Aç"}</button>
             <button onClick={() => setRightTab("members")}>Sunucu</button>
@@ -1229,6 +1389,9 @@ export default function App({ ioFactory }) {
             groups={groups}
             installApp={installApp}
             isInstalled={isInstalled}
+            enableNotifications={enableNotifications}
+            notificationPermission={notificationPermission}
+            mentionCount={mentionCount}
             setRightTab={setRightTab}
             setModal={setModal}
             createInvite={createInvite}
@@ -1353,7 +1516,20 @@ export default function App({ ioFactory }) {
 
 
 
-function DashboardPage({ user, servers, friends, groups, installApp, isInstalled, setRightTab, setModal, createInvite }) {
+
+function MessageContent({ text }) {
+  const parts = String(text || "").split(/(@[a-zA-Z0-9_ğüşöçıİĞÜŞÖÇ.-]{2,32})/g);
+  return (
+    <>
+      {parts.map((part, index) => {
+        if (part.startsWith("@")) return <span key={index} className="mentionTag">{part}</span>;
+        return <React.Fragment key={index}>{part}</React.Fragment>;
+      })}
+    </>
+  );
+}
+
+function DashboardPage({ user, servers, friends, groups, installApp, isInstalled, enableNotifications, notificationPermission, mentionCount, setRightTab, setModal, createInvite }) {
   return (
     <section className="dashboardPage">
       <div className="dashHero">
@@ -1370,6 +1546,7 @@ function DashboardPage({ user, servers, friends, groups, installApp, isInstalled
         <button className="statCard" onClick={() => setRightTab("groups")}><b>{groups.length}</b><span>Grup DM</span></button>
         <button className="statCard" onClick={() => setRightTab("members")}><b>{servers.length}</b><span>Sunucu</span></button>
         <button className="statCard" onClick={installApp}><b>⬇️</b><span>{isInstalled ? "Kuruldu" : "Uygulama Kur"}</span></button>
+        <button className="statCard mentionStat" onClick={enableNotifications}><b>{mentionCount}</b><span>Etiket / Bildirim</span></button>
       </div>
 
       <div className="quickGrid">
@@ -1381,6 +1558,7 @@ function DashboardPage({ user, servers, friends, groups, installApp, isInstalled
             <button onClick={() => setModal("joinServer")}>➕ Sunucuya katıl</button>
             <button onClick={createInvite}>🔗 Davet linki oluştur</button>
             <button onClick={installApp}>⬇️ Uygulama olarak kur</button>
+            <button onClick={enableNotifications}>🔔 Bildirimleri Aç ({notificationPermission})</button>
           </div>
         </div>
         <div className="panelCard bigPanel">
@@ -1454,7 +1632,7 @@ function GroupChatPage({ activeGroup, messages, draft, setDraft, send, groupVoic
           </div>
         )}
 
-        {messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span></div><p>{m.content}</p></div></article>)}
+        {messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span></div><p><MessageContent text={m.content} /></p></div></article>)}
       </div>
       <div className="composer"><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={`${activeGroup.name} grubuna mesaj yaz`} /><button onClick={send}>➤</button></div>
     </section>
@@ -1580,7 +1758,7 @@ function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, 
       <div className="dmChat">
         <div className="messages">
           <div className="channelHero"><div className="heroIcon">💬</div><div><h2>{dmUser.username}</h2><p>Özel mesaj ve sesli arama.</p></div></div>
-          {messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span></div><p>{m.content}</p></div></article>)}
+          {messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span></div><p><MessageContent text={m.content} /></p></div></article>)}
         </div>
         <div className="composer"><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={`${dmUser.username} kullanıcısına mesaj yaz`} /><button onClick={send}>➤</button></div>
       </div>
@@ -1616,7 +1794,7 @@ function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, 
 }
 
 function Chat({ messages, user, activeChannel, draft, setDraft, sendMessage, react, pin, del, edit }) {
-  return <section className="chat"><div className="messages"><div className="channelHero"><div className="heroIcon">{channelIcon(activeChannel?.type)}</div><div><h2>{activeChannel?.name}</h2><p>{activeChannel?.topic}</p></div></div>{messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span>{m.pinned && <span>📌</span>}</div><p>{m.content}</p><div className="reactions">{Object.entries(m.reactions || {}).map(([e,n]) => <button key={e} onClick={() => react(m,e)}>{e} {n}</button>)}</div><div className="messageActions"><button onClick={() => react(m,"👍")}>👍</button><button onClick={() => react(m,"🔥")}>🔥</button><button onClick={() => pin(m)}>Pin</button>{m.user_id===user.id && <button onClick={() => edit(m)}>Düzenle</button>}<button onClick={() => del(m)}>Sil</button></div></div></article>)}</div><div className="composer"><button>+</button><input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage()} placeholder="Mesaj yaz" /><button onClick={sendMessage}>➤</button></div></section>;
+  return <section className="chat"><div className="messages"><div className="channelHero"><div className="heroIcon">{channelIcon(activeChannel?.type)}</div><div><h2>{activeChannel?.name}</h2><p>{activeChannel?.topic}</p></div></div>{messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span>{m.pinned && <span>📌</span>}</div><p><MessageContent text={m.content} /></p><div className="reactions">{Object.entries(m.reactions || {}).map(([e,n]) => <button key={e} onClick={() => react(m,e)}>{e} {n}</button>)}</div><div className="messageActions"><button onClick={() => react(m,"👍")}>👍</button><button onClick={() => react(m,"🔥")}>🔥</button><button onClick={() => pin(m)}>Pin</button>{m.user_id===user.id && <button onClick={() => edit(m)}>Düzenle</button>}<button onClick={() => del(m)}>Sil</button></div></div></article>)}</div><div className="composer"><button>+</button><input value={draft} onChange={e=>setDraft(e.target.value)} onKeyDown={e=>e.key==="Enter"&&sendMessage()} placeholder="Mesaj yaz" /><button onClick={sendMessage}>➤</button></div></section>;
 }
 
 
