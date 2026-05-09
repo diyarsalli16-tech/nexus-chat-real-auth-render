@@ -212,7 +212,6 @@ function publicUser(row) {
     avatar: row.avatar,
     status: row.status,
     bio: row.bio,
-    e2ee_public_key: row.e2ee_public_key || null,
     created_at: row.created_at
   };
 }
@@ -264,7 +263,7 @@ app.post("/api/auth/register", async (req, res) => {
 
     const result = await query(
       `INSERT INTO users (username, password_hash, avatar) VALUES ($1,$2,$3)
-       RETURNING id, username, avatar, status, bio, e2ee_public_key, created_at`,
+       RETURNING id, username, avatar, status, bio, created_at`,
       [username, hash, avatar]
     );
 
@@ -306,73 +305,11 @@ app.patch("/api/me", requireAuth, async (req, res) => {
   const bio = String(req.body.bio || "").slice(0, 200);
   const status = ["online", "idle", "dnd", "offline"].includes(req.body.status) ? req.body.status : "online";
   const r = await query(
-    `UPDATE users SET bio=$1, status=$2 WHERE id=$3 RETURNING id, username, avatar, status, bio, e2ee_public_key, created_at`,
+    `UPDATE users SET bio=$1, status=$2 WHERE id=$3 RETURNING id, username, avatar, status, bio, created_at`,
     [bio, status, req.user.id]
   );
   res.json({ user: r.rows[0] });
 });
-
-
-app.patch("/api/me/e2ee-key", requireAuth, async (req, res) => {
-  const publicKey = String(req.body.public_key || "").trim();
-  if (!publicKey || publicKey.length > 12000) return res.status(400).json({ error: "Geçersiz E2EE public key." });
-  try { JSON.parse(publicKey); } catch { return res.status(400).json({ error: "E2EE public key JSON değil." }); }
-
-  const r = await query(
-    `UPDATE users SET e2ee_public_key=$1 WHERE id=$2 RETURNING id, username, avatar, status, bio, e2ee_public_key, created_at`,
-    [publicKey, req.user.id]
-  );
-  res.json({ user: publicUser(r.rows[0]) });
-});
-
-app.get("/api/e2ee/dm/:userId", requireAuth, async (req, res) => {
-  const otherId = Number(req.params.userId);
-  if (!(await areFriends(req.user.id, otherId))) return res.status(403).json({ error: "DM için önce arkadaş olmalısınız." });
-
-  const r = await query(`
-    SELECT id, username, e2ee_public_key
-    FROM users
-    WHERE id = ANY($1::int[])
-    ORDER BY id ASC
-  `, [[req.user.id, otherId]]);
-
-  res.json({ users: r.rows });
-});
-
-app.get("/api/e2ee/groups/:groupId", requireAuth, async (req, res) => {
-  const groupId = Number(req.params.groupId);
-  if (!(await requireGroupMember(req.user.id, groupId))) return res.status(403).json({ error: "Bu grupta değilsin." });
-
-  const r = await query(`
-    SELECT u.id, u.username, u.e2ee_public_key
-    FROM group_chat_members gm
-    JOIN users u ON u.id=gm.user_id
-    WHERE gm.group_id=$1
-    ORDER BY u.id ASC
-  `, [groupId]);
-
-  res.json({ users: r.rows });
-});
-
-app.get("/api/e2ee/channels/:channelId", requireAuth, async (req, res) => {
-  const channelId = Number(req.params.channelId);
-  const channel = await channelWithServer(channelId);
-  if (!channel) return res.status(404).json({ error: "Kanal bulunamadı." });
-
-  const role = await requireServerMember(req.user.id, channel.server_id);
-  if (!role) return res.status(403).json({ error: "Bu sunucuda değilsin." });
-
-  const r = await query(`
-    SELECT u.id, u.username, u.e2ee_public_key
-    FROM server_members sm
-    JOIN users u ON u.id=sm.user_id
-    WHERE sm.server_id=$1
-    ORDER BY u.id ASC
-  `, [channel.server_id]);
-
-  res.json({ users: r.rows });
-});
-
 
 app.get("/api/bootstrap", requireAuth, async (req, res) => {
   const servers = await query(`

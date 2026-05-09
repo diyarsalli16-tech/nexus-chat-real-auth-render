@@ -15,7 +15,7 @@ export async function requireAuth(req, res, next) {
 
     const payload = jwt.verify(token, secret());
     const result = await query(
-      `SELECT id, username, avatar, status, bio, e2ee_public_key, created_at FROM users WHERE id=$1`,
+      `SELECT id, username, avatar, status, bio, created_at FROM users WHERE id=$1`,
       [payload.id]
     );
 
@@ -33,7 +33,7 @@ export async function socketAuth(socket, next) {
     if (!token) return next(new Error("Giriş gerekli."));
     const payload = jwt.verify(token, secret());
     const result = await query(
-      `SELECT id, username, avatar, status, bio, e2ee_public_key FROM users WHERE id=$1`,
+      `SELECT id, username, avatar, status, bio FROM users WHERE id=$1`,
       [payload.id]
     );
     if (result.rowCount === 0) return next(new Error("Kullanıcı bulunamadı."));

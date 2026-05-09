@@ -10,7 +10,6 @@ export async function initDb() {
       avatar VARCHAR(4) NOT NULL DEFAULT 'U',
       status VARCHAR(20) NOT NULL DEFAULT 'online',
       bio TEXT NOT NULL DEFAULT '',
-      e2ee_public_key TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
@@ -120,8 +119,6 @@ export async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
-
-  await query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS e2ee_public_key TEXT`);
 
   const users = await query(`SELECT id FROM users LIMIT 1`);
   if (users.rowCount === 0) {

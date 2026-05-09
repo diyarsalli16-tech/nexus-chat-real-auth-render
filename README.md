@@ -1,20 +1,20 @@
-# Nexus Chat V16.1 E2EE Device Fix
+# Nexus Chat V17 No E2EE + Fullscreen Media
 
-Bu sürüm V16'daki şu hatayı düzeltir:
-- Mesajlarda sürekli "[Bu mesaj senin cihazın için şifrelenmemiş.]" çıkması.
-- E2EE çözme sırasında kullanıcı ID'si geç yüklenirse mesajın yanlış cihaz gibi algılanması.
-- Şifreleme sırasında yeni oluşturulan public key'in hemen kullanılmaması.
-
-Ek:
-- Ayarlar > Uygulama içinde "Bu cihazın E2EE anahtarını yenile" butonu eklendi.
-- Bu buton sadece yeni mesajlarda anahtar karıştıysa kullanılmalı.
-- Eski şifreli mesajlar eski cihaz anahtarıyla şifreliyse yeni anahtarla açılamaz.
+Bu sürüm:
+- E2EE şifreleme ve açılış animasyonu kaldırıldı.
+- Mesajlar tekrar normal gönderilir.
+- DM sesli aramada kamera ve ekran paylaşımı için tam ekran bakma eklendi.
+- Grup aramasında kamera ve ekran paylaşımı kutularına tam ekran bakma eklendi.
+- Video kutusuna çift tıklayınca tam ekran açılır.
+- Kutudaki "Tam ekran" butonuna basınca tam ekran açılır.
+- Dosya/foto/gif mesajları için JSON limit 20 MB yapıldı.
+- Mesaj içerik limiti yükseltildi.
 
 Kurulum:
 cd /d "%USERPROFILE%\Downloads"
-tar -xf nexus-chat-v16-1-e2ee-device-fix.zip -C "%USERPROFILE%\Desktop"
-xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v16-1-e2ee-device-fix\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
+tar -xf nexus-chat-v17-no-e2ee-fullscreen-media.zip -C "%USERPROFILE%\Desktop"
+xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v17-no-e2ee-fullscreen-media\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
 cd /d "%USERPROFILE%\Desktop\nexus-chat-real-auth-render"
 git add .
-git commit -m "fix e2ee device key message decrypt"
+git commit -m "remove e2ee and add fullscreen media view"
 git push
