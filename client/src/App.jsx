@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const API = "";
-const APP_VERSION = "V15 Group Video + Soundboard + Uploads";
+const APP_VERSION = "V16 E2EE Messages + Files";
 const defaultRtcConfig = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
@@ -39,6 +39,152 @@ function time(date) {
   return new Date(date).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
 }
 
+const E2EE_PREFIX = "::e2ee::";
+const FILE_PREFIX = "::file::";
+
+function bufToB64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function b64ToBuf(base64) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes.buffer;
+}
+
+function e2eeIdentityStorageKey(userId) {
+  return `nexus_e2ee_identity_${userId}`;
+}
+
+async function ensureE2EEIdentityForUser(user) {
+  if (!user?.id || !window.crypto?.subtle) return null;
+
+  const key = e2eeIdentityStorageKey(user.id);
+  let identity = null;
+
+  try { identity = JSON.parse(localStorage.getItem(key) || "null"); } catch { identity = null; }
+
+  if (!identity?.publicJwk || !identity?.privateJwk) {
+    const pair = await crypto.subtle.generateKey(
+      { name: "RSA-OAEP", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+      true,
+      ["encrypt", "decrypt"]
+    );
+
+    identity = {
+      publicJwk: await crypto.subtle.exportKey("jwk", pair.publicKey),
+      privateJwk: await crypto.subtle.exportKey("jwk", pair.privateKey),
+      createdAt: Date.now()
+    };
+
+    localStorage.setItem(key, JSON.stringify(identity));
+  }
+
+  const publicKeyString = JSON.stringify(identity.publicJwk);
+
+  if (user.e2ee_public_key !== publicKeyString) {
+    const data = await api("/api/me/e2ee-key", {
+      method: "PATCH",
+      body: JSON.stringify({ public_key: publicKeyString })
+    });
+    return data.user;
+  }
+
+  return user;
+}
+
+async function getPrivateE2EEKey() {
+  const userId = window.__nexusE2EEUserId;
+  if (!userId) throw new Error("E2EE kullanıcısı yok.");
+
+  const identity = JSON.parse(localStorage.getItem(e2eeIdentityStorageKey(userId)) || "null");
+  if (!identity?.privateJwk) throw new Error("Bu cihazda E2EE private key yok.");
+
+  return crypto.subtle.importKey("jwk", identity.privateJwk, { name: "RSA-OAEP", hash: "SHA-256" }, false, ["decrypt"]);
+}
+
+async function importPublicE2EEKey(publicKeyString) {
+  return crypto.subtle.importKey("jwk", JSON.parse(publicKeyString), { name: "RSA-OAEP", hash: "SHA-256" }, false, ["encrypt"]);
+}
+
+async function encryptE2EEForUsers(plaintext, users, currentUserId) {
+  if (!window.crypto?.subtle) throw new Error("Tarayıcı E2EE desteklemiyor.");
+
+  const recipients = (users || []).filter(u => u?.id && u?.e2ee_public_key);
+  const missing = (users || []).filter(u => !u?.e2ee_public_key).map(u => u.username).filter(Boolean);
+
+  if (!recipients.some(u => Number(u.id) === Number(currentUserId))) {
+    throw new Error("Kendi E2EE anahtarın hazır değil. Sayfayı yenileyip tekrar dene.");
+  }
+
+  if (missing.length) {
+    throw new Error(`${missing.join(", ")} henüz yeni şifreli sürüme giriş yapmamış. Önce onlar da bir kere siteye girsin.`);
+  }
+
+  const aesKey = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  const rawAesKey = await crypto.subtle.exportKey("raw", aesKey);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, new TextEncoder().encode(plaintext));
+
+  const keys = {};
+  for (const recipient of recipients) {
+    const publicKey = await importPublicE2EEKey(recipient.e2ee_public_key);
+    const encryptedKey = await crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, rawAesKey);
+    keys[String(recipient.id)] = bufToB64(encryptedKey);
+  }
+
+  return E2EE_PREFIX + JSON.stringify({
+    v: 1,
+    alg: "AES-GCM-256+RSA-OAEP-SHA256",
+    from: currentUserId,
+    iv: bufToB64(iv),
+    data: bufToB64(data),
+    keys
+  });
+}
+
+async function decryptE2EEContent(raw) {
+  const envelope = JSON.parse(String(raw).slice(E2EE_PREFIX.length));
+  const userId = String(window.__nexusE2EEUserId || "");
+  const encryptedKey = envelope.keys?.[userId];
+
+  if (!encryptedKey) return "[Bu mesaj senin cihazın için şifrelenmemiş.]";
+
+  const privateKey = await getPrivateE2EEKey();
+  const rawAesKey = await crypto.subtle.decrypt({ name: "RSA-OAEP" }, privateKey, b64ToBuf(encryptedKey));
+  const aesKey = await crypto.subtle.importKey("raw", rawAesKey, { name: "AES-GCM" }, false, ["decrypt"]);
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(b64ToBuf(envelope.iv)) }, aesKey, b64ToBuf(envelope.data));
+
+  return new TextDecoder().decode(plain);
+}
+
+function fileToDataMessage(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error("Dosya seçilmedi."));
+    if (file.size > 6 * 1024 * 1024) return reject(new Error("Dosya çok büyük. Şimdilik en fazla 6 MB."));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Dosya okunamadı."));
+    reader.onload = () => {
+      const payload = {
+        kind: "file",
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        size: file.size,
+        dataUrl: reader.result
+      };
+      resolve(FILE_PREFIX + JSON.stringify(payload));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function App({ ioFactory }) {
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ username: "", password: "" });
@@ -71,6 +217,7 @@ export default function App({ ioFactory }) {
   );
   const [mentionCount, setMentionCount] = useState(0);
   const [showRightPanel, setShowRightPanel] = useState(false);
+  const [showCryptoSplash, setShowCryptoSplash] = useState(true);
 
   const [groupVoice, setGroupVoice] = useState({
     active: false,
@@ -687,15 +834,28 @@ export default function App({ ioFactory }) {
     location.href = "/";
   }
 
+  async function encryptForContext(content, type, targetId = null) {
+    await ensureE2EEIdentityForUser(user);
+
+    let data;
+    if (type === "dm") data = await api(`/api/e2ee/dm/${targetId}`);
+    else if (type === "group") data = await api(`/api/e2ee/groups/${targetId}`);
+    else if (type === "channel") data = await api(`/api/e2ee/channels/${targetId}`);
+    else throw new Error("Bilinmeyen E2EE alanı.");
+
+    return encryptE2EEForUsers(content, data.users, user.id);
+  }
+
   async function sendMessage(contentOverride = null) {
     const content = (contentOverride ?? draft).trim();
     if (!content || !activeChannel) return;
     if (!contentOverride) setDraft("");
 
     try {
+      const encrypted = await encryptForContext(content, "channel", activeChannel.id);
       await api(`/api/channels/${activeChannel.id}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content })
+        body: JSON.stringify({ content: encrypted })
       });
     } catch (err) {
       setError(err.message);
@@ -775,9 +935,10 @@ export default function App({ ioFactory }) {
     if (!contentOverride) setDmDraft("");
 
     try {
+      const encrypted = await encryptForContext(content, "dm", dmUser.id);
       const data = await api(`/api/dms/${dmUser.id}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content })
+        body: JSON.stringify({ content: encrypted })
       });
 
       setDmMessages(old => old.some(m => m.id === data.message.id) ? old : [...old, data.message]);
@@ -1024,9 +1185,10 @@ export default function App({ ioFactory }) {
     if (!contentOverride) setGroupDraft("");
 
     try {
+      const encrypted = await encryptForContext(content, "group", activeGroup.id);
       const data = await api(`/api/groups/${activeGroup.id}/messages`, {
         method: "POST",
-        body: JSON.stringify({ content })
+        body: JSON.stringify({ content: encrypted })
       });
       setGroupMessages(old => old.some(m => m.id === data.message.id) ? old : [...old, data.message]);
     } catch (err) {
@@ -1489,6 +1651,8 @@ export default function App({ ioFactory }) {
         {modal === "invitePreview" && invitePreview && (
           <InvitePreview invite={invitePreview} user={user} onJoin={() => setError("Katılmak için önce giriş yap veya kaydol.")} onClose={() => setModal(null)} />
         )}
+
+        {showCryptoSplash && <CryptoSplash />}
       </div>
     );
   }
@@ -1680,6 +1844,7 @@ export default function App({ ioFactory }) {
         </div>
       )}
 
+      {showCryptoSplash && <CryptoSplash />}
       <div className="toast">{toast}</div>
       {error && <div className="error floating" onClick={() => setError("")}>{error}</div>}
 
@@ -1711,19 +1876,64 @@ export default function App({ ioFactory }) {
 
 
 
+function CryptoSplash() {
+  return (
+    <div className="cryptoSplash">
+      <div className="cryptoSplashCard">
+        <div className="cryptoLock">🔐</div>
+        <h1>YENİ SÜRÜMDE HERŞEY ARTIK ŞİFRELİ</h1>
+        <p>DM, grup mesajları ve dosyalar cihazında şifrelenir.</p>
+      </div>
+    </div>
+  );
+}
+
 function MessageContent({ text }) {
   const raw = String(text || "");
+  const [plain, setPlain] = useState(raw);
 
-  if (raw.startsWith("::file::")) {
+  useEffect(() => {
+    let alive = true;
+
+    async function run() {
+      if (!raw.startsWith(E2EE_PREFIX)) {
+        if (alive) setPlain(raw);
+        return;
+      }
+
+      try {
+        const decrypted = await decryptE2EEContent(raw);
+        if (alive) setPlain(decrypted);
+      } catch {
+        if (alive) setPlain("[Bu şifreli mesaj bu cihazda açılamadı.]");
+      }
+    }
+
+    run();
+    return () => { alive = false; };
+  }, [raw]);
+
+  if (raw.startsWith(E2EE_PREFIX) && plain === raw) {
+    return <span className="encryptedLoading">🔐 Şifreli mesaj çözülüyor...</span>;
+  }
+
+  return <PlainMessageContent text={plain} />;
+}
+
+function PlainMessageContent({ text }) {
+  const raw = String(text || "");
+
+  if (raw.startsWith(FILE_PREFIX)) {
     try {
-      const file = JSON.parse(raw.slice("::file::".length));
+      const file = JSON.parse(raw.slice(FILE_PREFIX.length));
       const type = file.type || "";
       const isImage = type.startsWith("image/");
       const isVideo = type.startsWith("video/");
       const isAudio = type.startsWith("audio/");
 
       return (
-        <div className="attachmentCard">
+        <div className="attachmentCard encryptedAttachment">
+          <div className="encryptedBadge">🔐 Şifreli dosya</div>
           {isImage && <img src={file.dataUrl} alt={file.name} />}
           {isVideo && <video src={file.dataUrl} controls />}
           {isAudio && <audio src={file.dataUrl} controls />}

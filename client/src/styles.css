@@ -486,3 +486,73 @@ body.pwa-standalone .globalCallDock{bottom:28px}
   .groupMediaGrid{grid-template-columns:1fr}
   .groupMediaTile{height:210px}
 }
+
+
+/* V16 E2EE splash and encrypted messages */
+.cryptoSplash{
+  position:fixed;
+  inset:0;
+  z-index:9999;
+  display:grid;
+  place-items:center;
+  background:radial-gradient(circle at 50% 20%, rgba(88,101,242,.28), transparent 34%), rgba(5,7,13,.96);
+  animation:cryptoSplashOut 2s ease forwards;
+}
+.cryptoSplashCard{
+  width:min(760px, calc(100vw - 32px));
+  border-radius:34px;
+  padding:38px;
+  text-align:center;
+  background:linear-gradient(180deg,rgba(17,24,39,.96),rgba(8,11,20,.96));
+  border:1px solid rgba(129,140,248,.28);
+  box-shadow:0 30px 120px rgba(0,0,0,.55);
+}
+.cryptoLock{
+  width:96px;
+  height:96px;
+  border-radius:32px;
+  margin:0 auto 18px;
+  display:grid;
+  place-items:center;
+  background:linear-gradient(135deg,#5865f2,#7c3aed);
+  font-size:48px;
+  animation:lockPulse .9s ease-in-out infinite alternate;
+}
+.cryptoSplashCard h1{
+  margin:0;
+  font-size:clamp(26px, 4vw, 46px);
+  letter-spacing:-.04em;
+}
+.cryptoSplashCard p{
+  margin:12px 0 0;
+  color:#a5b4fc;
+  font-weight:900;
+}
+@keyframes cryptoSplashOut{
+  0%,78%{opacity:1;visibility:visible}
+  100%{opacity:0;visibility:hidden}
+}
+@keyframes lockPulse{
+  from{transform:scale(1); box-shadow:0 0 0 rgba(88,101,242,0)}
+  to{transform:scale(1.04); box-shadow:0 0 40px rgba(88,101,242,.4)}
+}
+.encryptedLoading{
+  color:#a5b4fc;
+  font-weight:900;
+}
+.encryptedBadge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  margin:10px 10px 0;
+  padding:6px 9px;
+  border-radius:999px;
+  background:rgba(34,197,94,.12);
+  color:#bbf7d0;
+  border:1px solid rgba(34,197,94,.25);
+  font-size:12px;
+  font-weight:950;
+}
+.encryptedAttachment{
+  border-color:rgba(34,197,94,.25);
+}
