@@ -1,6 +1,6 @@
 {
-  "name": "nexus-chat-v13-clean-discord-dashboard",
-  "version": "13.0.0",
+  "name": "nexus-chat-v14-ultra-clean-discord-ui",
+  "version": "14.0.0",
   "private": true,
   "type": "module",
   "scripts": {

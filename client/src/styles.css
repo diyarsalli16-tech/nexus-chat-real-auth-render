@@ -255,3 +255,114 @@ body.pwa-standalone .globalCallDock{bottom:28px}
   .discordHeroRight{grid-template-columns:repeat(2,1fr)}
   .homeActionList{grid-template-columns:1fr}
 }
+
+
+/* V14 ultra-clean Discord dashboard */
+.cleanTopActions{gap:8px}
+.cleanTopActions button{
+  width:38px;
+  min-width:38px;
+  padding:0;
+  border-radius:50%;
+  font-size:15px;
+}
+.subtleBoost{
+  opacity:.82;
+  background:rgba(255,255,255,.035)!important;
+}
+.ultraHome{
+  padding:20px;
+  gap:16px;
+}
+.ultraWelcome{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:18px;
+  min-height:128px;
+  border-radius:22px;
+  padding:22px 24px;
+  background:linear-gradient(180deg,rgba(34,38,54,.96),rgba(18,21,31,.96));
+  border:1px solid rgba(255,255,255,.075);
+}
+.ultraWelcome h1{
+  margin:4px 0 8px;
+  font-size:32px;
+  line-height:1.05;
+}
+.settingsBig{
+  height:44px;
+  border-radius:14px;
+  padding:0 16px;
+  background:#5865f2;
+  color:white;
+  font-weight:950;
+}
+.ultraGrid{
+  display:grid;
+  grid-template-columns:minmax(0,1.2fr) minmax(320px,.8fr);
+  gap:16px;
+}
+.mainHomeCard{
+  min-height:430px;
+}
+.ultraShortcutRow{
+  display:flex;
+  flex-wrap:wrap;
+  gap:10px;
+}
+.ultraShortcutRow button{
+  height:42px;
+  border-radius:14px;
+  padding:0 14px;
+  background:rgba(255,255,255,.045);
+  border:1px solid rgba(255,255,255,.08);
+  color:#dbeafe;
+  font-weight:900;
+}
+.ultraShortcutRow button:hover{
+  background:rgba(88,101,242,.18);
+}
+.settingsGrid{
+  display:grid;
+  grid-template-columns:1.1fr .9fr;
+  gap:14px;
+  min-width:min(780px,80vw);
+}
+.settingsSection{
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  padding:14px;
+  border-radius:18px;
+  background:rgba(255,255,255,.035);
+  border:1px solid rgba(255,255,255,.08);
+}
+.settingsSection h3{
+  margin:0 0 4px;
+}
+.settingsAction{
+  min-height:42px;
+  border-radius:14px;
+  padding:0 14px;
+  text-align:left;
+  background:rgba(88,101,242,.14);
+  border:1px solid rgba(129,140,248,.18);
+  color:white;
+  font-weight:900;
+}
+.settingsAction:hover{
+  background:rgba(88,101,242,.24);
+}
+.dashboardPage,
+.discordHome{
+  background:transparent!important;
+}
+@media(max-width:1100px){
+  .ultraGrid{grid-template-columns:1fr}
+}
+@media(max-width:760px){
+  .ultraHome{padding:12px}
+  .ultraWelcome{align-items:flex-start;flex-direction:column}
+  .settingsGrid{grid-template-columns:1fr;min-width:0}
+}
