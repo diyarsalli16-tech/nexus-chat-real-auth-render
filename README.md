@@ -1,17 +1,18 @@
-# Nexus Chat V6 SocketRef Call Fix
+# Nexus Chat V7 Discord UI + Groups
 
-Bu sürüm DM sesli aramada Bağlanıyor... takılmasını hedefler.
-
-Düzeltmeler:
-- WebRTC offer/candidate gönderirken stale React socket state yerine socketRef kullanılır.
-- Socket, DM değişince gereksiz reconnect olmaz.
-- RTC offer/answer hataları artık ekranda hata olarak görünür.
-- DM mesajları ve TURN config önceki sürümden korunur.
+Bu sürüm:
+- Dashboard'u Discord benzeri kartlı hale getirir.
+- Grup DM oluşturma ve grup mesajlaşma ekler.
+- Sunucuya davet linki/koduyla katılma modalı ekler.
+- Davet linki modalını "Resmi Nexus daveti" olarak gösterir.
+- Kamera açma ve ekran paylaşımı için WebRTC renegotiation ekler.
+- Kamera/ekran paylaşımı açıldıktan sonra karşı tarafa track göndermeyi düzeltir.
+- Mobil ve panel CSS iyileştirmesi ekler.
 
 Kurulum:
-1. Zip'i Desktop'a aç.
-2. İçeriği nexus-chat-real-auth-render klasörünün üstüne kopyala.
-3. git add .
-4. git commit -m "fix webrtc stale socket call signaling"
-5. git push
-6. Render Manual Deploy > Deploy latest commit.
+tar -xf nexus-chat-v7-discord-ui-groups.zip -C "%USERPROFILE%\Desktop"
+xcopy /E /Y /I "%USERPROFILE%\Desktop\nexus-chat-v7-discord-ui-groups\*" "%USERPROFILE%\Desktop\nexus-chat-real-auth-render\"
+cd /d "%USERPROFILE%\Desktop\nexus-chat-real-auth-render"
+git add .
+git commit -m "add discord dashboard groups and media renegotiation"
+git push

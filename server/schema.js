@@ -89,6 +89,28 @@ export async function initDb() {
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS group_chats (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(80) NOT NULL,
+      owner_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS group_chat_members (
+      group_id INTEGER REFERENCES group_chats(id) ON DELETE CASCADE,
+      user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (group_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS group_messages (
+      id SERIAL PRIMARY KEY,
+      group_id INTEGER REFERENCES group_chats(id) ON DELETE CASCADE,
+      sender_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      content TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS audit_logs (
       id SERIAL PRIMARY KEY,
       server_id INTEGER REFERENCES servers(id) ON DELETE CASCADE,
@@ -152,6 +174,21 @@ export async function initDb() {
     await query(
       `INSERT INTO direct_messages (sender_id, receiver_id, content) VALUES ($1,$2,$3),($2,$1,$4)`,
       [adminId, novaId, "Selam Nova, DM yazışması çalışıyor.", "Evet, şimdi DM arama paneli de düzgün."]
+    );
+
+    const group = await query(
+      `INSERT INTO group_chats (name, owner_id) VALUES ($1,$2) RETURNING id`,
+      ["Test Grup", adminId]
+    );
+
+    await query(
+      `INSERT INTO group_chat_members (group_id, user_id) VALUES ($1,$2),($1,$3) ON CONFLICT DO NOTHING`,
+      [group.rows[0].id, adminId, novaId]
+    );
+
+    await query(
+      `INSERT INTO group_messages (group_id, sender_id, content) VALUES ($1,$2,$3)`,
+      [group.rows[0].id, adminId, "Grup sohbeti de hazır."]
     );
   }
 }

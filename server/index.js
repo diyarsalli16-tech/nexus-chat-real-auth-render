@@ -64,6 +64,7 @@ io.on("connection", (socket) => {
   socket.join(`user:${socket.user.id}`);
 
   socket.on("channel:join", (channelId) => socket.join(`channel:${channelId}`));
+  socket.on("group:join", (groupId) => socket.join(`group:${groupId}`));
 
   socket.on("dm:call:invite", ({ to }) => {
     io.to(`user:${to}`).emit("dm:call:incoming", {
@@ -126,6 +127,14 @@ function publicUser(row) {
 async function requireServerMember(userId, serverId) {
   const r = await query(`SELECT role FROM server_members WHERE user_id=$1 AND server_id=$2`, [userId, serverId]);
   return r.rows[0] || null;
+}
+
+async function requireGroupMember(userId, groupId) {
+  const r = await query(
+    `SELECT group_id FROM group_chat_members WHERE user_id=$1 AND group_id=$2`,
+    [userId, groupId]
+  );
+  return r.rowCount > 0;
 }
 
 async function areFriends(a, b) {
@@ -387,6 +396,136 @@ app.post("/api/dms/:userId/messages", requireAuth, async (req, res) => {
   io.to(`user:${req.user.id}`).emit("dm:new", message);
   res.json({ message });
 });
+
+
+app.get("/api/groups", requireAuth, async (req, res) => {
+  const r = await query(`
+    SELECT g.*,
+      (SELECT COUNT(*)::int FROM group_chat_members gm WHERE gm.group_id=g.id) AS member_count,
+      COALESCE(
+        (
+          SELECT gm2.content
+          FROM group_messages gm2
+          WHERE gm2.group_id=g.id
+          ORDER BY gm2.id DESC
+          LIMIT 1
+        ),
+        ''
+      ) AS last_message
+    FROM group_chats g
+    JOIN group_chat_members m ON m.group_id=g.id
+    WHERE m.user_id=$1
+    ORDER BY g.id DESC
+  `, [req.user.id]);
+
+  res.json({ groups: r.rows });
+});
+
+app.post("/api/groups", requireAuth, async (req, res) => {
+  const name = String(req.body.name || "").trim().slice(0, 80);
+  const memberIds = Array.isArray(req.body.member_ids) ? req.body.member_ids.map(Number).filter(Boolean) : [];
+
+  if (!name) return res.status(400).json({ error: "Grup adı gerekli." });
+
+  const uniqueIds = [...new Set([req.user.id, ...memberIds])].slice(0, 20);
+
+  const g = await query(
+    `INSERT INTO group_chats (name, owner_id) VALUES ($1,$2) RETURNING *`,
+    [name, req.user.id]
+  );
+
+  for (const id of uniqueIds) {
+    await query(
+      `INSERT INTO group_chat_members (group_id, user_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
+      [g.rows[0].id, id]
+    );
+  }
+
+  await query(
+    `INSERT INTO group_messages (group_id, sender_id, content) VALUES ($1,$2,$3)`,
+    [g.rows[0].id, req.user.id, `${req.user.username} grubu oluşturdu.`]
+  );
+
+  const group = {
+    ...g.rows[0],
+    member_count: uniqueIds.length,
+    last_message: `${req.user.username} grubu oluşturdu.`
+  };
+
+  uniqueIds.forEach(id => io.to(`user:${id}`).emit("group:new", group));
+  res.json({ group });
+});
+
+app.get("/api/groups/:groupId/messages", requireAuth, async (req, res) => {
+  const groupId = Number(req.params.groupId);
+  if (!(await requireGroupMember(req.user.id, groupId))) {
+    return res.status(403).json({ error: "Bu grupta değilsin." });
+  }
+
+  const r = await query(`
+    SELECT gm.*, u.username, u.avatar
+    FROM group_messages gm
+    JOIN users u ON u.id=gm.sender_id
+    WHERE gm.group_id=$1
+    ORDER BY gm.id ASC
+    LIMIT 250
+  `, [groupId]);
+
+  res.json({ messages: r.rows });
+});
+
+app.post("/api/groups/:groupId/messages", requireAuth, async (req, res) => {
+  const groupId = Number(req.params.groupId);
+  if (!(await requireGroupMember(req.user.id, groupId))) {
+    return res.status(403).json({ error: "Bu grupta değilsin." });
+  }
+
+  const content = String(req.body.content || "").trim();
+  if (!content) return res.status(400).json({ error: "Mesaj boş olamaz." });
+
+  const r = await query(
+    `INSERT INTO group_messages (group_id, sender_id, content) VALUES ($1,$2,$3) RETURNING *`,
+    [groupId, req.user.id, content.slice(0, 2000)]
+  );
+
+  const message = { ...r.rows[0], username: req.user.username, avatar: req.user.avatar };
+  io.to(`group:${groupId}`).emit("group:message:new", message);
+  res.json({ message });
+});
+
+app.post("/api/invites/join", requireAuth, async (req, res) => {
+  const raw = String(req.body.code || "").trim();
+  const match = raw.match(/invite\/([A-Z0-9]+)/i);
+  const code = (match ? match[1] : raw).toUpperCase();
+
+  if (!code) return res.status(400).json({ error: "Davet kodu/linki gerekli." });
+
+  req.params.code = code;
+
+  const r = await query(`SELECT * FROM server_invites WHERE code=$1`, [code]);
+  if (!r.rowCount) return res.status(404).json({ error: "Davet bulunamadı." });
+
+  const invite = r.rows[0];
+
+  if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) {
+    return res.status(410).json({ error: "Davet süresi dolmuş." });
+  }
+
+  if (invite.max_uses && invite.uses >= invite.max_uses) {
+    return res.status(410).json({ error: "Davet kullanım limiti dolmuş." });
+  }
+
+  await query(
+    `INSERT INTO server_members (server_id, user_id, role) VALUES ($1,$2,'Member') ON CONFLICT DO NOTHING`,
+    [invite.server_id, req.user.id]
+  );
+
+  await query(`UPDATE server_invites SET uses=uses+1 WHERE id=$1`, [invite.id]);
+  await query(`INSERT INTO audit_logs (server_id, user_id, action) VALUES ($1,$2,$3)`, [invite.server_id, req.user.id, `${req.user.username} davet koduyla sunucuya katıldı.`]);
+
+  res.json({ ok: true, server_id: invite.server_id });
+});
+
 
 app.post("/api/servers", requireAuth, async (req, res) => {
   const name = String(req.body.name || "").trim().slice(0, 80);
