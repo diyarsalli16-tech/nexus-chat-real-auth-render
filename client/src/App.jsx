@@ -39,6 +39,26 @@ function time(date) {
   return new Date(date).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
 }
 
+function fileToDataMessage(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error("Dosya seçilmedi."));
+    if (file.size > 6 * 1024 * 1024) return reject(new Error("Dosya çok büyük. Şimdilik en fazla 6 MB."));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Dosya okunamadı."));
+    reader.onload = () => {
+      const payload = {
+        kind: "file",
+        name: file.name,
+        type: file.type || "application/octet-stream",
+        size: file.size,
+        dataUrl: reader.result
+      };
+      resolve("::file::" + JSON.stringify(payload));
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 export default function App({ ioFactory }) {
   const [authMode, setAuthMode] = useState("login");
   const [authForm, setAuthForm] = useState({ username: "", password: "" });
@@ -1570,9 +1590,9 @@ export default function App({ ioFactory }) {
     return (
       <div className="authPage">
         <form className="authCard" onSubmit={submitAuth}>
-          <div className="brand">N</div>
+          <div className="brand">O</div>
           <h1>{authMode === "login" ? "Giriş Yap" : "Kaydol"}</h1>
-          <p>Kayıt gerçek veritabanına gider. Şifre bcrypt ile hashlenir.</p>
+          <p>Orbit Client hesabınla sohbet etmeye başla.</p>
           <input value={authForm.username} onChange={e => setAuthForm({ ...authForm, username: e.target.value })} placeholder="Kullanıcı adı" />
           <input type="password" value={authForm.password} onChange={e => setAuthForm({ ...authForm, password: e.target.value })} placeholder="Şifre" />
           {error && <div className="error">{error}</div>}
@@ -1635,7 +1655,7 @@ export default function App({ ioFactory }) {
         <header className="topbar">
           <div>
             <h2>{rightTab === "dm" ? `💬 ${dmUser?.username}` : rightTab === "group" ? `💬 ${activeGroup?.name}` : rightTab === "groups" ? "💬 Grup DM" : rightTab === "dashboard" ? "🏠 Ana Sayfa" : rightTab === "friends" ? "👥 Arkadaşlar" : `${channelIcon(activeChannel?.type)} ${activeChannel?.name}`}</h2>
-            <p>{rightTab === "dashboard" ? `Daha sade Discord benzeri başlangıç ekranı.` : rightTab === "groups" ? "Arkadaşlarınla özel grup sohbeti oluştur." : rightTab === "group" ? "Grup mesajlaşması." : rightTab === "friends" ? "Kullanıcı ara, arkadaş ekle, DM aç." : rightTab === "dm" ? "Özel mesaj ve sesli arama." : activeChannel?.topic}</p>
+            <p>{rightTab === "dashboard" ? `Discord benzeri Orbit Client arayüzü.` : rightTab === "groups" ? "Arkadaşlarınla özel grup sohbeti oluştur." : rightTab === "group" ? "Grup mesajlaşması." : rightTab === "friends" ? "Kullanıcı ara, arkadaş ekle, DM aç." : rightTab === "dm" ? "Özel mesaj ve sesli arama." : activeChannel?.topic}</p>
           </div>
           <div className="topActions cleanTopActions">
             <button title="Sağ panel" onClick={() => setShowRightPanel(v => !v)}>{showRightPanel ? "▸" : "◂"}</button>
@@ -1944,7 +1964,7 @@ function DashboardPage({ user, servers, friends, groups, installApp, isInstalled
         <div>
           <p className="eyebrow">{APP_VERSION}</p>
           <h1>Merhaba, {user.username}</h1>
-          <p className="muted">Ana sayfa sade tutuldu. Kurulum, bildirim, davet ve gelişmiş işlemler artık ayarlarda.</p>
+          <p className="muted">Direkt mesajlar, gruplar, bildirimler ve sunucular tek yerde.</p>
         </div>
         <button className="settingsBig" onClick={() => setModal("settings")}>⚙ Ayarlar</button>
       </div>
