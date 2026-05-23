@@ -1231,9 +1231,11 @@ export default function App({ ioFactory }) {
       }
 
       combined.addTrack(track);
+      if (track.kind === "video") setCall(c => ({ ...c, remoteVideo: true }));
 
       track.onended = () => {
         try { combined.removeTrack(track); } catch {}
+        if (track.kind === "video") setCall(c => ({ ...c, remoteVideo: combined.getVideoTracks().length > 0 }));
         bindRemoteMedia();
       };
     }
@@ -1581,6 +1583,7 @@ export default function App({ ioFactory }) {
       muted: false,
       camera: false,
       screen: false,
+      remoteVideo: false,
       localVolume: 100,
       remoteVolume: 100
     });
@@ -1775,7 +1778,7 @@ export default function App({ ioFactory }) {
         />
       )}
 
-      {call.active && (
+      {call.active && !(rightTab === "dm" && dmUser && call.peerId === dmUser.id) && !/aranıyor/i.test(String(call.status || "")) && (
         <GlobalCallDock
           call={call}
           dmUser={dmUser}
@@ -1791,12 +1794,17 @@ export default function App({ ioFactory }) {
       )}
 
       {call.incoming && (
-        <div className="incomingCall discordIncomingCall">
-          <div className="avatar pulseAvatar">{call.incoming.avatar}</div>
-          <div><b>{call.incoming.username} arıyor</b><p>Gelen DM sesli arama</p></div>
-          <div className="incomingCardActions">
-            <button onClick={acceptIncomingCall}>Kabul</button>
-            <button className="danger" onClick={rejectIncomingCall}>Reddet</button>
+        <div className="discordIncomingOverlay">
+          <div className="discordIncomingMiniCard">
+            <div className="incomingAvatarRing">
+              <div className="avatar incomingBigAvatar">{call.incoming.avatar}</div>
+            </div>
+            <h3>{call.incoming.username}</h3>
+            <p>Seni sesli arıyor. Kabul edince tarayıcı mikrofon izni ister ve arama başlar.</p>
+            <div className="incomingPermissionActions">
+              <button className="incomingReject" onClick={rejectIncomingCall} title="Reddet">✕</button>
+              <button className="incomingAccept" onClick={acceptIncomingCall} title="Kabul et">☎</button>
+            </div>
           </div>
         </div>
       )}
@@ -2257,12 +2265,17 @@ function FriendSidebar({ friends, openDm }) {
 function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, remoteVideoRef, screenVideoRef, startDmCall, acceptIncomingCall, rejectIncomingCall, toggleMute, toggleCamera, toggleScreen, endCall, setCall, soundboardItems, sendDmSound, openFullscreen }) {
   if (!dmUser) return <section className="friendsPage"><div className="panelCard"><h3>DM seçilmedi</h3><p className="muted">Arkadaşlar listesinden birini seç.</p></div></section>;
 
-  const callState = call.active ? "Bağlı" : call.incoming ? "Gelen arama" : "Aramaya hazır";
+  const isThisCall = call.active && (call.peerId === dmUser.id || call.peerName === dmUser.username);
+  const isRinging = isThisCall && /aranıyor/i.test(String(call.status || ""));
+  const callTitle = isRinging ? `${dmUser.username} aranıyor` : `${dmUser.username} ile aramadasın`;
+  const callDescription = isRinging
+    ? "Karşı tarafa arama isteği gönderildi. Kabul ederse ses bağlantısı açılacak."
+    : (call.status || "Ses bağlantısı açık");
 
   return (
-    <section className={`dmLayout discordDmCall ${call.active ? "dmCallLive" : "dmCallIdle"}`}>
+    <section className={`dmLayout discordDmCall discordDmPermissionMode ${isThisCall ? "dmHasInlineCall" : ""}`}>
       <div className="dmChat">
-        <div className="messages">
+        <div className="messages dmMessagesWithCenterCall">
           <div className="channelHero dmHero">
             <div className="heroIcon">{dmUser.avatar || "💬"}</div>
             <div>
@@ -2270,77 +2283,77 @@ function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, 
               <p>Özel mesaj, sesli arama, kamera ve ekran paylaşımı.</p>
             </div>
             <div className="dmHeroActions">
-              <button onClick={startDmCall}>☎</button>
-              <button onClick={toggleCamera}>🎥</button>
-              <button onClick={toggleScreen}>🖥</button>
+              <button className="callTopBtn" onClick={startDmCall} title="Sesli ara">☎</button>
+              <button className="callTopBtn" onClick={toggleCamera} title="Kamera">🎥</button>
+              <button className="callTopBtn" onClick={toggleScreen} title="Ekran paylaş">🖥</button>
             </div>
           </div>
+
+          {isThisCall && (
+            <div className="discordCallPopArea">
+              <div className={`discordPermissionCallCard ${isRinging ? "ringing" : "connected"}`}>
+                <div className="permissionCardTop">
+                  <div className="permissionAvatarWrap">
+                    <div className="avatar permissionAvatar">{dmUser.avatar}</div>
+                    <span className="permissionPing" />
+                  </div>
+                  <h3>{callTitle}</h3>
+                  <p>{callDescription}</p>
+                </div>
+
+                {!isRinging && (
+                  <div className="permissionMediaStage">
+                    <div className="permissionVideoTile remote mediaCanFullscreen" onDoubleClick={() => openFullscreen(remoteVideoRef)}>
+                      <video ref={remoteVideoRef} autoPlay playsInline />
+                      {!call.remoteVideo && <div className="permissionVideoFallback"><div className="avatar">{dmUser.avatar}</div><span>{dmUser.username}</span></div>}
+                      <button className="fullscreenBtn tiny" onClick={() => openFullscreen(remoteVideoRef)}>⛶</button>
+                    </div>
+                    <div className="permissionVideoTile self mediaCanFullscreen" onDoubleClick={() => openFullscreen(localVideoRef)}>
+                      <video ref={localVideoRef} autoPlay muted playsInline />
+                      {!call.camera && <div className="permissionVideoFallback small"><div className="avatar">Sen</div><span>Kamera kapalı</span></div>}
+                      <button className="fullscreenBtn tiny" onClick={() => openFullscreen(localVideoRef)}>⛶</button>
+                    </div>
+                    {call.screen && (
+                      <div className="permissionVideoTile screen mediaCanFullscreen" onDoubleClick={() => openFullscreen(screenVideoRef)}>
+                        <video ref={screenVideoRef} autoPlay muted playsInline />
+                        <span className="screenLabel">Ekran paylaşımı</span>
+                        <button className="fullscreenBtn tiny" onClick={() => openFullscreen(screenVideoRef)}>⛶</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="permissionCallActions">
+                  {!isRinging && <button className={`roundCallBtn ${call.muted ? "disabled" : ""}`} onClick={toggleMute} title="Mikrofon">{call.muted ? "🔇" : "🎙"}</button>}
+                  {!isRinging && <button className={`roundCallBtn ${call.camera ? "active" : ""}`} onClick={toggleCamera} title="Kamera">🎥</button>}
+                  {!isRinging && <button className={`roundCallBtn ${call.screen ? "active" : ""}`} onClick={toggleScreen} title="Ekran paylaş">🖥</button>}
+                  <button className="roundCallBtn rejectCall" onClick={() => endCall()} title={isRinging ? "Aramayı iptal et" : "Aramayı bitir"}>✕</button>
+                </div>
+
+                {!isRinging && (
+                  <div className="permissionExtras">
+                    <details>
+                      <summary>Ses ayarları ve soundboard</summary>
+                      <div className="volumeBox compactVolumeBox">
+                        <label>Karşı taraf sesi <b>{call.remoteVolume}%</b></label>
+                        <input type="range" min="0" max="100" value={call.remoteVolume} onChange={e => setCall(c => ({ ...c, remoteVolume: Number(e.target.value) }))} />
+                        <label>Mikrofon seviyesi <b>{call.localVolume}%</b></label>
+                        <input type="range" min="0" max="100" value={call.localVolume} onChange={e => setCall(c => ({ ...c, localVolume: Number(e.target.value) }))} />
+                      </div>
+                      <div className="soundboardBox compactSoundboard">
+                        <Soundboard items={soundboardItems} onPlay={sendDmSound} />
+                      </div>
+                    </details>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span></div><p><MessageContent text={m.content} /></p></div></article>)}
         </div>
         <div className="composer"><AttachmentButton onUpload={send} /><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={`${dmUser.username} kullanıcısına mesaj yaz`} /><button onClick={() => send()}>➤</button></div>
       </div>
-
-      <aside className="callPanel discordCallPanel">
-        <div className="discordCallHeader">
-          <div className="callIdentity">
-            <div className="avatar callAvatar">{dmUser.avatar}</div>
-            <div>
-              <h3>{dmUser.username}</h3>
-              <p><span className={`callDot ${call.active ? "online" : "idle"}`} /> {callState} • {call.status}</p>
-            </div>
-          </div>
-          <button className="callHeaderClose danger" onClick={() => endCall()}>✕</button>
-        </div>
-
-        <div className="discordCallStage">
-          <div className="videoTile discordVideoTile remoteTile mediaCanFullscreen" onDoubleClick={() => openFullscreen(remoteVideoRef)}>
-            <video ref={remoteVideoRef} autoPlay playsInline />
-            {!call.active && <div className="videoPlaceholder"><div className="avatar xl">{dmUser.avatar}</div><b>{dmUser.username}</b><small>Aramayı başlatınca burada görünür.</small></div>}
-            <span>{dmUser.username}</span>
-            <button className="fullscreenBtn" onClick={() => openFullscreen(remoteVideoRef)}>⛶</button>
-          </div>
-
-          <div className="videoTile discordVideoTile selfTile mediaCanFullscreen" onDoubleClick={() => openFullscreen(localVideoRef)}>
-            <video ref={localVideoRef} autoPlay muted playsInline />
-            {!call.camera && <div className="videoPlaceholder self"><div className="avatar">Sen</div><small>Kamera kapalı</small></div>}
-            <span>Sen</span>
-            <button className="fullscreenBtn" onClick={() => openFullscreen(localVideoRef)}>⛶</button>
-          </div>
-
-          {call.screen && (
-            <div className="videoTile discordVideoTile screenTile mediaCanFullscreen" onDoubleClick={() => openFullscreen(screenVideoRef)}>
-              <video ref={screenVideoRef} autoPlay muted playsInline />
-              <span>Ekran paylaşımı</span>
-              <button className="fullscreenBtn" onClick={() => openFullscreen(screenVideoRef)}>⛶</button>
-            </div>
-          )}
-        </div>
-
-        <div className="discordControlTray">
-          {!call.active ? (
-            <button className="callCircle primaryCircle" onClick={startDmCall}><span>☎</span><small>Ara</small></button>
-          ) : (
-            <button className={`callCircle ${call.muted ? "off" : ""}`} onClick={toggleMute}><span>{call.muted ? "🔇" : "🎙"}</span><small>{call.muted ? "Mic Aç" : "Sessize Al"}</small></button>
-          )}
-          <button className={`callCircle ${call.camera ? "" : "off"}`} onClick={toggleCamera}><span>🎥</span><small>{call.camera ? "Kapat" : "Kamera"}</small></button>
-          <button className={`callCircle ${call.screen ? "active" : ""}`} onClick={toggleScreen}><span>🖥</span><small>{call.screen ? "Durdur" : "Ekran"}</small></button>
-          <button className="callCircle dangerCircle" onClick={() => endCall()}><span>📞</span><small>Bitir</small></button>
-        </div>
-
-        {call.active && (
-          <div className="soundboardBox discordSoundboard">
-            <div className="panelTitleRow"><h4>Ses Efektleri</h4><small>Soundboard</small></div>
-            <Soundboard items={soundboardItems} onPlay={sendDmSound} />
-          </div>
-        )}
-
-        <div className="volumeBox discordVolumeBox">
-          <label>Karşı taraf sesi <b>{call.remoteVolume}%</b></label>
-          <input type="range" min="0" max="100" value={call.remoteVolume} onChange={e => setCall(c => ({ ...c, remoteVolume: Number(e.target.value) }))} />
-          <label>Mikrofon seviyesi <b>{call.localVolume}%</b></label>
-          <input type="range" min="0" max="100" value={call.localVolume} onChange={e => setCall(c => ({ ...c, localVolume: Number(e.target.value) }))} />
-        </div>
-      </aside>
     </section>
   );
 }
