@@ -1743,10 +1743,11 @@ export default function App({ ioFactory }) {
             openFullscreen={openFullscreen}
           />
         ) : ["voice", "stage"].includes(activeChannel?.type) ? (
-          <section className="voiceRoom">
-            <h1>{channelIcon(activeChannel.type)} {activeChannel.name}</h1>
-            <p>Sunucu ses odası paneli. DM ses araması için arkadaş DM ekranını kullan.</p>
-            <button className="primary" onClick={() => setError("Sunucu odaları için grup WebRTC/SFU gerekir. Şu an DM P2P araması eklendi.")}>Sunucu Ses Paneli</button>
+          <section className="voiceRoom discordServerVoiceRoom">
+            <div className="voiceRoomIcon">{channelIcon(activeChannel.type)}</div>
+            <h1>{activeChannel.name}</h1>
+            <p>Discord tarzı sunucu ses odası önizlemesi. Aktif çoklu ses sistemi grup DM panelinde çalışır.</p>
+            <button className="primary" onClick={() => setError("Sunucu kanalları için tam Discord benzeri çoklu ses için SFU/oda altyapısı gerekir. Mevcut çalışan arama sistemi DM ve Grup DM içinde korunuyor.")}>Ses Odasını Aç</button>
           </section>
         ) : (
           <Chat messages={messages} user={user} activeChannel={activeChannel} draft={draft} setDraft={setDraft} sendMessage={sendMessage} react={react} pin={pin} del={del} edit={edit} onUpload={sendMessage} />
@@ -1790,11 +1791,13 @@ export default function App({ ioFactory }) {
       )}
 
       {call.incoming && (
-        <div className="incomingCall">
-          <div className="avatar">{call.incoming.avatar}</div>
-          <div><b>{call.incoming.username} arıyor</b><p>DM sesli arama</p></div>
-          <button onClick={acceptIncomingCall}>Kabul</button>
-          <button className="danger" onClick={rejectIncomingCall}>Reddet</button>
+        <div className="incomingCall discordIncomingCall">
+          <div className="avatar pulseAvatar">{call.incoming.avatar}</div>
+          <div><b>{call.incoming.username} arıyor</b><p>Gelen DM sesli arama</p></div>
+          <div className="incomingCardActions">
+            <button onClick={acceptIncomingCall}>Kabul</button>
+            <button className="danger" onClick={rejectIncomingCall}>Reddet</button>
+          </div>
         </div>
       )}
 
@@ -2089,25 +2092,40 @@ function GroupChatPage({
         </div>
 
         {inThisVoice && (
-          <div className="groupVoicePanel">
-            <h3>🎥 Grup Ses / Kamera / Ekran</h3>
-            <p>{groupVoice.status}</p>
+          <div className="groupVoicePanel discordVoicePanel">
+            <div className="voiceTopBar">
+              <div>
+                <span className="voiceStatusPill"><i /> Ses bağlı</span>
+                <h3>{activeGroup.name}</h3>
+                <p>{groupVoice.status}</p>
+              </div>
+              <div className="voiceTopActions">
+                <button onClick={toggleGroupMute}>{groupVoice.muted ? "🎙 Mic Aç" : "🔇 Mic Kapat"}</button>
+                <button onClick={toggleGroupCamera}>{groupLocalVideoOn ? "🎥 Kamera Kapat" : "🎥 Kamera Aç"}</button>
+                <button onClick={toggleGroupScreen}>{groupScreenOn ? "🖥 Ekranı Kapat" : "🖥 Ekran Paylaş"}</button>
+                <button className="danger" onClick={leaveGroupVoice}>📞 Çık</button>
+              </div>
+            </div>
 
-            <div className="groupMediaGrid">
+            <div className="groupMediaGrid discordStageGrid">
               <LocalGroupMediaTile stream={groupScreenStream || groupCameraStream} label={groupScreenOn ? "Senin ekranın" : "Senin kameran"} openFullscreen={openFullscreen} />
+              {!groupScreenStream && !groupCameraStream && <div className="groupMediaTile selfAudioTile"><div className="audioOnly">🎙</div><span>Sen</span></div>}
               {Object.entries(groupRemoteStreams).map(([id, stream]) => {
                 const peer = groupVoice.peers.find(p => p.socketId === id);
                 return <RemoteMediaTile key={id} stream={stream} label={peer?.username || "Katılımcı"} openFullscreen={openFullscreen} />;
               })}
+              {Object.keys(groupRemoteStreams).length === 0 && <div className="groupMediaTile waitingTile"><div className="audioOnly">👥</div><span>Katılımcılar bekleniyor</span></div>}
             </div>
 
-            <div className="voiceParticipants">
-              <div className="voicePill">Sen {groupVoice.muted ? "• susturuldu" : "• konuşuyor"}</div>
+            <div className="voiceParticipants discordParticipants">
+              <div className={`voicePill ${groupVoice.muted ? "mutedVoice" : "speakingVoice"}`}>Sen {groupVoice.muted ? "• mikrofon kapalı" : "• konuşuyor"}</div>
               {groupVoice.peers.map(p => <div className="voicePill" key={p.socketId}>{p.username || "Kullanıcı"} • {p.status}</div>)}
             </div>
 
-            <h4>🎛 Troll Ses Paneli</h4>
-            <Soundboard items={soundboardItems} onPlay={sendGroupSound} />
+            <div className="soundboardBox discordSoundboard">
+              <div className="panelTitleRow"><h4>Ses Efektleri</h4><small>Grup soundboard</small></div>
+              <Soundboard items={soundboardItems} onPlay={sendGroupSound} />
+            </div>
 
             {Object.entries(groupRemoteStreams).map(([id, stream]) => <RemoteAudio key={id} stream={stream} />)}
           </div>
@@ -2134,12 +2152,15 @@ function RemoteAudio({ stream }) {
 function GroupVoiceDock({ groupVoice, groupRemoteStreams, activeGroup, setRightTab, toggleGroupMute, leaveGroupVoice }) {
   const count = Object.keys(groupRemoteStreams || {}).length + 1;
   return (
-    <div className="groupVoiceDock">
-      <div><b>🔊 Grup sesi aktif</b><p>{activeGroup?.name || "Grup"} • {count} kişi • {groupVoice.status}</p></div>
-      <div className="dockButtons">
-        <button onClick={() => setRightTab("group")}>Gruba Dön</button>
-        <button onClick={toggleGroupMute}>{groupVoice.muted ? "Mic Aç" : "Mic Kapat"}</button>
-        <button className="danger" onClick={leaveGroupVoice}>Çık</button>
+    <div className="groupVoiceDock discordBottomDock">
+      <div className="dockConnection">
+        <span className="dockSignal">▰▰▰</span>
+        <div><b>Ses Bağlandı</b><p>{activeGroup?.name || "Grup"} • {count} kişi • {groupVoice.status}</p></div>
+      </div>
+      <div className="dockButtons discordDockButtons">
+        <button onClick={() => setRightTab("group")}>Sohbete Dön</button>
+        <button onClick={toggleGroupMute}>{groupVoice.muted ? "🎙" : "🔇"}</button>
+        <button className="danger" onClick={leaveGroupVoice}>📞</button>
       </div>
     </div>
   );
@@ -2155,11 +2176,11 @@ function GroupSidebar({ groups, openGroup }) {
 
 function GlobalCallDock({ call, dmUser, localVideoRef, remoteVideoRef, setRightTab, toggleMute, toggleCamera, toggleScreen, endCall, openFullscreen }) {
   return (
-    <div className="globalCallDock">
+    <div className="globalCallDock discordBottomDock activeDmDock">
       <div className="dockVideos">
         <div className="dockVideo mediaCanFullscreen" onDoubleClick={() => openFullscreen(remoteVideoRef)}>
           <video ref={remoteVideoRef} autoPlay playsInline />
-          <span>Karşı taraf</span>
+          <span>{dmUser?.username || "Karşı taraf"}</span>
           <button className="fullscreenBtn tiny" onClick={() => openFullscreen(remoteVideoRef)}>⛶</button>
         </div>
         {call.camera && (
@@ -2170,16 +2191,16 @@ function GlobalCallDock({ call, dmUser, localVideoRef, remoteVideoRef, setRightT
           </div>
         )}
       </div>
-      <div className="dockInfo">
-        <b>Sesli arama aktif</b>
-        <p>{call.peerName || dmUser?.username || "DM"} • {call.status}</p>
+      <div className="dockConnection">
+        <span className="dockSignal">▰▰▰</span>
+        <div><b>Ses Bağlandı</b><p>{call.peerName || dmUser?.username || "DM"} • {call.status}</p></div>
       </div>
-      <div className="dockButtons">
-        <button onClick={() => setRightTab("dm")}>DM'e Dön</button>
-        <button onClick={toggleMute}>{call.muted ? "Mic Aç" : "Mic Kapat"}</button>
-        <button onClick={toggleCamera}>{call.camera ? "Kamera Kapat" : "Kamera"}</button>
-        <button onClick={toggleScreen}>{call.screen ? "Ekranı Kapat" : "Ekran"}</button>
-        <button className="danger" onClick={() => endCall()}>Bitir</button>
+      <div className="dockButtons discordDockButtons">
+        <button onClick={() => setRightTab("dm")}>DM</button>
+        <button onClick={toggleMute}>{call.muted ? "🎙" : "🔇"}</button>
+        <button onClick={toggleCamera}>🎥</button>
+        <button onClick={toggleScreen}>🖥</button>
+        <button className="danger" onClick={() => endCall()}>📞</button>
       </div>
     </div>
   );
@@ -2236,63 +2257,90 @@ function FriendSidebar({ friends, openDm }) {
 function DMPage({ dmUser, messages, draft, setDraft, send, call, localVideoRef, remoteVideoRef, screenVideoRef, startDmCall, acceptIncomingCall, rejectIncomingCall, toggleMute, toggleCamera, toggleScreen, endCall, setCall, soundboardItems, sendDmSound, openFullscreen }) {
   if (!dmUser) return <section className="friendsPage"><div className="panelCard"><h3>DM seçilmedi</h3><p className="muted">Arkadaşlar listesinden birini seç.</p></div></section>;
 
+  const callState = call.active ? "Bağlı" : call.incoming ? "Gelen arama" : "Aramaya hazır";
+
   return (
-    <section className="dmLayout">
+    <section className={`dmLayout discordDmCall ${call.active ? "dmCallLive" : "dmCallIdle"}`}>
       <div className="dmChat">
         <div className="messages">
-          <div className="channelHero"><div className="heroIcon">💬</div><div><h2>{dmUser.username}</h2><p>Özel mesaj ve sesli arama.</p></div></div>
+          <div className="channelHero dmHero">
+            <div className="heroIcon">{dmUser.avatar || "💬"}</div>
+            <div>
+              <h2>{dmUser.username}</h2>
+              <p>Özel mesaj, sesli arama, kamera ve ekran paylaşımı.</p>
+            </div>
+            <div className="dmHeroActions">
+              <button onClick={startDmCall}>☎</button>
+              <button onClick={toggleCamera}>🎥</button>
+              <button onClick={toggleScreen}>🖥</button>
+            </div>
+          </div>
           {messages.map(m => <article className="message" key={m.id}><div className="avatar">{m.avatar}</div><div className="messageBody"><div className="messageTop"><b>{m.username}</b><span>{time(m.created_at)}</span></div><p><MessageContent text={m.content} /></p></div></article>)}
         </div>
         <div className="composer"><AttachmentButton onUpload={send} /><input value={draft} onChange={e => setDraft(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} placeholder={`${dmUser.username} kullanıcısına mesaj yaz`} /><button onClick={() => send()}>➤</button></div>
       </div>
 
-      <div className="callPanel">
-        <div className="callPanelHeader">
-          <div><h3>DM Arama Paneli</h3><p>{call.status}</p><small>İki hesap da açık olmalı. Karşı taraf gelen aramayı kabul etmeli.</small></div>
-          <button className="danger" onClick={() => endCall()}>Kapat</button>
+      <aside className="callPanel discordCallPanel">
+        <div className="discordCallHeader">
+          <div className="callIdentity">
+            <div className="avatar callAvatar">{dmUser.avatar}</div>
+            <div>
+              <h3>{dmUser.username}</h3>
+              <p><span className={`callDot ${call.active ? "online" : "idle"}`} /> {callState} • {call.status}</p>
+            </div>
+          </div>
+          <button className="callHeaderClose danger" onClick={() => endCall()}>✕</button>
         </div>
 
-        <div className="videoStack">
-          <div className="videoTile mediaCanFullscreen" onDoubleClick={() => openFullscreen(remoteVideoRef)}>
+        <div className="discordCallStage">
+          <div className="videoTile discordVideoTile remoteTile mediaCanFullscreen" onDoubleClick={() => openFullscreen(remoteVideoRef)}>
             <video ref={remoteVideoRef} autoPlay playsInline />
-            <span>Karşı taraf</span>
-            <button className="fullscreenBtn" onClick={() => openFullscreen(remoteVideoRef)}>⛶ Tam ekran</button>
+            {!call.active && <div className="videoPlaceholder"><div className="avatar xl">{dmUser.avatar}</div><b>{dmUser.username}</b><small>Aramayı başlatınca burada görünür.</small></div>}
+            <span>{dmUser.username}</span>
+            <button className="fullscreenBtn" onClick={() => openFullscreen(remoteVideoRef)}>⛶</button>
           </div>
-          <div className="videoTile small mediaCanFullscreen" onDoubleClick={() => openFullscreen(localVideoRef)}>
+
+          <div className="videoTile discordVideoTile selfTile mediaCanFullscreen" onDoubleClick={() => openFullscreen(localVideoRef)}>
             <video ref={localVideoRef} autoPlay muted playsInline />
+            {!call.camera && <div className="videoPlaceholder self"><div className="avatar">Sen</div><small>Kamera kapalı</small></div>}
             <span>Sen</span>
-            <button className="fullscreenBtn" onClick={() => openFullscreen(localVideoRef)}>⛶ Tam ekran</button>
+            <button className="fullscreenBtn" onClick={() => openFullscreen(localVideoRef)}>⛶</button>
           </div>
+
           {call.screen && (
-            <div className="videoTile mediaCanFullscreen" onDoubleClick={() => openFullscreen(screenVideoRef)}>
+            <div className="videoTile discordVideoTile screenTile mediaCanFullscreen" onDoubleClick={() => openFullscreen(screenVideoRef)}>
               <video ref={screenVideoRef} autoPlay muted playsInline />
               <span>Ekran paylaşımı</span>
-              <button className="fullscreenBtn" onClick={() => openFullscreen(screenVideoRef)}>⛶ Tam ekran</button>
+              <button className="fullscreenBtn" onClick={() => openFullscreen(screenVideoRef)}>⛶</button>
             </div>
           )}
         </div>
 
-        <div className="callControls">
-          {!call.active ? <button onClick={startDmCall}>📞 Sesli Ara</button> : <button onClick={toggleMute}>{call.muted ? "Mikrofon Aç" : "Mikrofon Kapat"}</button>}
-          <button onClick={toggleCamera}>{call.camera ? "Kamerayı Kapat" : "Kamera Aç"}</button>
-          <button onClick={toggleScreen}>{call.screen ? "Ekranı Kapat" : "Ekran Paylaş"}</button>
-          <button className="danger" onClick={() => endCall()}>Aramayı Bitir</button>
+        <div className="discordControlTray">
+          {!call.active ? (
+            <button className="callCircle primaryCircle" onClick={startDmCall}><span>☎</span><small>Ara</small></button>
+          ) : (
+            <button className={`callCircle ${call.muted ? "off" : ""}`} onClick={toggleMute}><span>{call.muted ? "🔇" : "🎙"}</span><small>{call.muted ? "Mic Aç" : "Sessize Al"}</small></button>
+          )}
+          <button className={`callCircle ${call.camera ? "" : "off"}`} onClick={toggleCamera}><span>🎥</span><small>{call.camera ? "Kapat" : "Kamera"}</small></button>
+          <button className={`callCircle ${call.screen ? "active" : ""}`} onClick={toggleScreen}><span>🖥</span><small>{call.screen ? "Durdur" : "Ekran"}</small></button>
+          <button className="callCircle dangerCircle" onClick={() => endCall()}><span>📞</span><small>Bitir</small></button>
         </div>
 
         {call.active && (
-          <div className="soundboardBox">
-            <h4>🎛 Troll Ses Paneli</h4>
+          <div className="soundboardBox discordSoundboard">
+            <div className="panelTitleRow"><h4>Ses Efektleri</h4><small>Soundboard</small></div>
             <Soundboard items={soundboardItems} onPlay={sendDmSound} />
           </div>
         )}
 
-        <div className="volumeBox">
-          <label>Karşı taraf sesi: {call.remoteVolume}%</label>
+        <div className="volumeBox discordVolumeBox">
+          <label>Karşı taraf sesi <b>{call.remoteVolume}%</b></label>
           <input type="range" min="0" max="100" value={call.remoteVolume} onChange={e => setCall(c => ({ ...c, remoteVolume: Number(e.target.value) }))} />
-          <label>Mikrofon seviyesi: {call.localVolume}%</label>
+          <label>Mikrofon seviyesi <b>{call.localVolume}%</b></label>
           <input type="range" min="0" max="100" value={call.localVolume} onChange={e => setCall(c => ({ ...c, localVolume: Number(e.target.value) }))} />
         </div>
-      </div>
+      </aside>
     </section>
   );
 }
